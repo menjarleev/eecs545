@@ -45,7 +45,7 @@ class Solver:
             validation=False,
             validation_interval=1000,
             continue_train=False,):
-        device = t.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
+        device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
 
         if continue_train:
             save_dir = os.path.join(ckpt_root, model_dir)

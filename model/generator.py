@@ -40,7 +40,7 @@ class RandomLightGenerator(nn.Module):
             norm_layer(ngf),
             actv())
 
-        self.encode, n_channel = self._build_encode_block(num_downsample, input_dim, ngf, n_channel, padding_mode, norm_layer, actv)
+        self.encode, n_channel = self._build_encode_block(num_downsample, n_channel, padding_mode, norm_layer, actv)
 
         self._build_decode_block(num_downsample, n_channel, padding_mode,  actv, upsampler)
 
@@ -52,7 +52,7 @@ class RandomLightGenerator(nn.Module):
             resblock += [ResnetBlock(res_channel, res_channel, norm_layer, actv, padding_mode=padding_mode)]
         self.resblock = nn.Sequential(*resblock)
 
-    def _build_encode_block(self, num_downsample, input_dim, ngf, n_channel, padding_mode, norm_layer, actv):
+    def _build_encode_block(self, num_downsample, n_channel, padding_mode, norm_layer, actv):
         block = []
         for i in range(num_downsample):
             block += [nn.Conv2d(n_channel[i][0], n_channel[i][1], 3, 1, 1, padding_mode=padding_mode,),
