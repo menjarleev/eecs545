@@ -5,7 +5,7 @@ import imageio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from data import generate_dataloader
+from data import ToTensor, Bottle128Dataset
 from utils import LossCollector
 from subprocess import call
 from tqdm import tqdm, trange
@@ -84,13 +84,25 @@ class Solver:
         visualizer.log_print("# params of studio_D: {}".format(sum(map(lambda x: x.numel(), self.studio_D.parameters()))))
 
         # create dataloader
-        # TODO: Aabhaas
-        # NOTE: some args for generate_dataloader shall be filled
-        train_dataloader = generate_dataloader()
+        # TODO: Aabhaas + Lingfei
+        # NOTE: figure out how to pass args to dataloader
+        num_lighting = 9
+        base_train = './training_base_img_arr.npy'
+        lighting_train = './training_lighting_arr.npy'
+        base_val = './val_base_img_arr.npy'
+        lighting_val = './val_lighting_arr.npy'
+
+        bottles_train = Bottle128Dataset(base_img_file = base_train,
+                                         lighting_img_file = lighting_train,
+                                         num_lighting = num_lighting,
+                                         transform=transforms.Compose([ToTensor()]))
+        train_dataloader = DataLoader(bottles_train, batch_size=16, shuffle=True)
         if validation:
-            # TODO: Aabhaas
-            # generate validation dataloader
-            validation_dataloader = generate_dataloader()
+            bottles_val = Bottle128Dataset(base_img_file = base_val,
+                                           lighting_img_file = lighting_val,
+                                           num_lighting = num_lighting,
+                                           transform=transforms.Compose([ToTensor()]))
+            val_dataloader = DataLoader(bottles_val, batch_size=16, shuffle=True)
 
         t1 = time.time()
         start = 0
