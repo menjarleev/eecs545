@@ -17,12 +17,11 @@ import json
 
 
 class Solver:
+
     def __init__(self, rand_G, studio_G=None, studio_D=None, name='PhotometricGAN'):
         self.name = name
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.rand_G = rand_G.to(self.device)
+        self.rand_G = rand_G
         self.studio_G, self.studio_D = studio_G, studio_D
-        self.module_dict = {'netG': self.netG}
         self.t1, self.t2 = None, None
 
     def fit(self,
@@ -45,6 +44,7 @@ class Solver:
             validation=False,
             validation_interval=1000,
             continue_train=False,):
+
         device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
 
         if continue_train:
@@ -131,7 +131,7 @@ class Solver:
             loss_collector.compute_VGG_losses(fake_studio_img_backward, studio_img)
             loss_collector.compute_feat_losses(self.studio_D, fake_studio_img_backward, studio_img)
             loss_collector.compute_L1_losses(fake_rand_img_forward, rand_img)
-            loss_collector.compute_L1_losses(fake_light_vec_backward, light_vec_backward)
+            loss_collector.compute_vec_losses(fake_light_vec_backward, light_vec_backward)
 
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
 
@@ -144,7 +144,7 @@ class Solver:
 
             loss_dict = {**self.loss_collector.loss_names_G, **self.loss_collector.loss_names_D}
 
-            if (validation and (step + 1) % validation_interval == 0):
+            if validation and (step + 1) % validation_interval == 0:
                 self.summary_and_save(step, loss_dict)
 
             # if (not opt.no_test and (step + 1) % opt.test_steps == 0) or opt.debug:
@@ -191,32 +191,28 @@ class Solver:
         Visualizer.log_print(opt, msg)
 
 
-    def summary_and_save(self, step, loss_dict):
-        opt = self.opt
-        if opt.print_mem:
+    def summary_and_save(self, step, loss_dict, curr_result, print_mem=False,):
+        if print_mem:
             call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"])
-        self.t2 = time.time()
-        errors = {k: v.data.item() if not isinstance(v, int) else v for k, v in loss_dict.items()}
+        t2 = time.time()
+        errors = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_dict.items()}
         err_msg = ""
         for k, v in errors.items():
             if v != 0:
                 err_msg += '%s: %.3f ' % (k, v)
         curr_lr = self.schedulerG.get_lr()[0]
-        step, max_steps = step + 1, self.opt.max_steps
-        eta = (self.t2 - self.t1) / opt.eval_steps * (max_steps - step) / 3600
 
         psnr, ssim = self.evaluate('validation')
-        score = util.calculate_score(psnr, ssim)
-        current_latest = {
+        latest_result = {
             'psnr': psnr,
             'ssim': ssim,
-            'score': score,
             'step': step
         }
-        best = self.data['best']
-        if util.evaluate(current_latest, best, opt.eval_metric):
+        best = curr_result['best']
+        if latest_result['psnr'] >= curr_result['psnr']
+        if util.evaluate(current_latest, best, eval_metric):
             self.data['best'] = current_latest
-            self.save('best', self.module_dict)
+            self.save('best', )
             self.save_log_iter('best')
         best = self.data['best']
         self.data['latest'] = current_latest
@@ -258,40 +254,13 @@ class Solver:
 
 
     @torch.no_grad()
-    def evaluate(self, phase):
-        opt = self.opt
-        method = opt.name
-        scale = opt.scale
-        if phase == 'test':
-            dataset_name = opt.test_name
-            data_loader = self.test_loader
-        elif phase == 'validation':
-            dataset_name = opt.train_name
-            data_loader = self.validation_loader
-        else:
-            raise NotImplementedError('[%s] is not supported in evaluation' % phase)
-        self.netG.eval()
-
-        if opt.save_result:
-            save_root = os.path.join(self.save_dir, 'SR', opt.degradation, dataset_name, 'x{}'.format(scale))
-            os.makedirs(save_root, exist_ok=True)
-
+    def evaluate(self, dataloader, save_dir, phase='test', save_result=False):
+        self.rand_G.eval()
+        self.studio_G.eval()
         psnr = 0
         ssim = 0
-        tqdm_data_loader = tqdm(data_loader, desc=phase, leave=False)
+        tqdm_data_loader = tqdm(dataloader, desc=phase, leave=False)
         for i, inputs in enumerate(tqdm_data_loader):
-            HR = inputs[0].to(self.device)
-            LR = inputs[1].to(self.device)
-            path = inputs[2][0]
-
-            file_name = os.path.basename(path).replace('HR', method)
-            if 'cutblur' in opt.augs and HR.size() != LR.size():
-                scale = HR.size(2) // LR.size(2)
-                LR = F.interpolate(LR, scale_factor=scale, mode='nearest')
-
-            SR = self.netG(LR).detach()
-            SR = util.quantize(SR, 1)
-            HR, SR = tensor2im([HR, SR], normalize=opt.normalize)
             if opt.save_result:
                 save_path = os.path.join(save_root, file_name)
                 io.imsave(save_path, SR)
@@ -312,18 +281,16 @@ class Solver:
             json.dump(self.data, json_file)
         Visualizer.log_print(self.opt, 'update [{}] for status file'.format(label))
 
-    def save(self, step_label, module_dict):
-        def update_state_dict(dict):
-            for k, v in dict.items():
-                if 'net' in k:
-                    state_dict.update({k: v.cpu().state_dict()})
-                    if torch.cuda.is_available():
-                        v.to(self.device)
-                else:
-                    state_dict.update({k: v.state_dict()})
+    def save(self, save_dir, label):
+        def update_state_dict(name, module):
+            state_dict.update({name: module.cpu().state_dict()})
+            # if torch.cuda.is_available():
+            #     module.to(device)
         state_dict = dict()
-        update_state_dict(module_dict)
-        state_path = os.path.join(self.save_dir, 'state_{}.pth'.format(step_label))
+        update_state_dict('rand_G', self.rand_G)
+        update_state_dict('studio_G', self.studio_G)
+        update_state_dict('studio_D', self.studio_D)
+        state_path = os.path.join(save_dir, 'state_{}.pth'.format(label))
         torch.save(state_dict, state_path)
 
     def load(self, gpu_id, save_dir, label, visualizer):
