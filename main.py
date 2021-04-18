@@ -96,7 +96,8 @@ def main():
                                        gan_mode=opt.gan_mode,
                                        lambda_L1=opt.lambda_L1,
                                        lambda_feat=opt.lambda_feat,
-                                       lambda_vgg=opt.lambda_vgg)
+                                       lambda_vgg=opt.lambda_vgg,
+                                       lambda_vec=opt.lambda_vec)
         solver.fit(gpu_id=opt.gpu_id,
                    save_dir=opt.save_dir,
                    lr=opt.lr,

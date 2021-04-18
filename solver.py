@@ -95,18 +95,18 @@ class Solver:
             rand_img = inputs['lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
 
-            fake_studio_img_forward, light_vec_forward = self.studio_G(rand_img)
-            fake_rand_img_forward = self.rand_G(fake_studio_img_forward, light_vec_forward)
+            fake_studio_img_forward, light_vec_forward, _ = self.studio_G(rand_img)
 
-            light_vec_backward = torch.rand_like(light_vec_forward)
-            fake_rand_img_backward = self.rand_G(studio_img, light_vec_backward)
-            fake_studio_img_backward, fake_light_vec_backward = self.studio_G(fake_rand_img_backward)
+            light_vec_backward = torch.rand_like(light_vec_forward, requires_grad=False)
+            fake_rand_img_backward, res_rand_backward = self.rand_G(studio_img, light_vec_backward)
+            fake_studio_img_backward, fake_light_vec_backward, res_studio_backward = self.studio_G(fake_rand_img_backward)
 
             # TODO: lingfei - add log dict here
             loss_collector.compute_GAN_losses(self.studio_D, fake_studio_img_backward, studio_img, for_discriminator=False)
-            loss_collector.compute_VGG_losses(fake_studio_img_backward, studio_img)
             loss_collector.compute_feat_losses(self.studio_D, fake_studio_img_backward, studio_img)
-            loss_collector.compute_L1_losses(fake_rand_img_forward, rand_img)
+            loss_collector.compute_VGG_losses(fake_studio_img_backward, studio_img)
+            loss_collector.compute_L1_losses(fake_studio_img_forward, studio_img)
+            loss_collector.compute_L1_losses(res_rand_backward, res_studio_backward, intermediate=True)
             loss_collector.compute_vec_losses(fake_light_vec_backward, light_vec_backward)
 
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
@@ -254,9 +254,9 @@ class Solver:
             rand_img = inputs['lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
 
-            fake_studio_img, light_vec_forward = self.studio_G(rand_img)
+            fake_studio_img, light_vec_forward, _ = self.studio_G(rand_img)
 
-            fake_rand_img = self.rand_G(studio_img, light_vec_forward)
+            fake_rand_img, _ = self.rand_G(studio_img, light_vec_forward)
             crop_size = 10
             fake_studio_img = tensor2im(quantize(fake_studio_img, 1))
             fake_rand_img = tensor2im(quantize(fake_rand_img, 1))

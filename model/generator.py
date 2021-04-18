@@ -75,7 +75,8 @@ class RandomLightGenerator(nn.Module):
     def forward(self, img, light_vec):
         x = self.from_rgb(img)
         x = self.encode(x)
-        x = self.resblock(x)
+        res = self.resblock(x)
+        x = res
         z = light_vec
         for i in range(self.num_downsample):
             decode_conv = getattr(self, f'decode_conv_{i}')
@@ -87,7 +88,7 @@ class RandomLightGenerator(nn.Module):
             x = decode_norm(x, z)
             x = decode_actv(x)
         x = self.to_rgb(x)
-        return x
+        return x, res
 
 
 class StudioLightGenerator(nn.Module):
@@ -178,7 +179,7 @@ class StudioLightGenerator(nn.Module):
                 z = t.cat([z, affine], -1)
                 z = linear(z)
             x = actv(x)
-        x = self.resblock(x)
-        x = self.decode(x)
+        res = self.resblock(x)
+        x = self.decode(res)
         x = self.to_rgb(x)
-        return x, z
+        return x, z, res
