@@ -91,7 +91,7 @@ class ResnetBlock(nn.Module):
         conv_block = []
         conv_block += [nn.Conv2d(in_channel, in_channel, kernel_size=kernel_size, padding=kernel_size // 2, padding_mode=padding_mode),
                        norm_layer(in_channel),
-                       activation]
+                       activation()]
         if dropout > 0.:
             conv_block += [nn.Dropout(dropout)]
         conv_block += [nn.Conv2d(in_channel, out_channel, kernel_size=3, padding=kernel_size // 2, padding_mode=padding_mode, stride=stride),
@@ -121,3 +121,21 @@ class AdaptiveInstanceNorm(nn.Module):
         out = self.norm(input)
         out = gamma * out + beta
         return out
+
+class InverseAdaptiveInstanceNorm(nn.Module):
+    def __init__(self, in_channel, ratio=4):
+        super(InverseAdaptiveInstanceNorm, self).__init__()
+        self.norm = nn.InstanceNorm2d(in_channel, affine=False)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.fc1 = nn.Linear(in_channel * 2, in_channel * 2 // ratio)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(in_channel * 2 // ratio, in_channel * 2)
+
+    def forward(self, input):
+        x = self.norm(input)
+        style_x = th.cat([self.avg_pool(x), self.max_pool(x)], dim=-1).view(x.shape[0], -1)
+        affine_out = self.fc2(self.relu(self.fc1(style_x)))
+        gamma, beta = th.chunk(affine_out[:, :, None, None], 2, dim=1)
+        out = gamma * x + beta
+        return out, gamma, beta

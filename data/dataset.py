@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from torchvision import transforms
 
 class ToTensor(object):
@@ -32,9 +32,9 @@ class Bottle128Dataset(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        sample = {'base': self.base_img_array[0, idx, :, :, :]}
+        sample = {'base': self.base_img_array[0, idx, :, :, :].astype(np.float32)}
         random_lc = np.random.randint(low = 0, high = self.num_lighting)
-        sample['lc'] = self.lighting_array[random_lc, idx, :, :, :]
+        sample['lc'] = self.lighting_array[random_lc, idx, :, :, :].astype(np.float32)
         if self.transform:
             sample = self.transform(sample)
 

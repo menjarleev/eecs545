@@ -2,12 +2,15 @@ from model.loss import *
 import torch
 
 class LossCollector:
-    def __init__(self, gpu_id, loss_terms, gan_mode, lambda_l1=0., lambda_feat=0., lambda_vgg=0.,):
+    def __init__(self, gpu_id, loss_terms, gan_mode, lambda_L1=0., lambda_feat=0., lambda_vgg=0.,):
         self.device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
         self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
         self.loss_names_G = dict()
         self.loss_names_D = dict()
-        if 'gan' in loss_terms:
+        self.weight = {'L1': 0,
+                       'feat': 0,
+                       'VGG': 0}
+        if 'GAN' in loss_terms:
             self.criterionGAN = GANLoss(gan_mode, tensor=self.tensor)
             self.loss_names_G['G_GAN'] = 0
             self.loss_names_D['D_real'] = 0
@@ -15,17 +18,17 @@ class LossCollector:
         if 'feat' in loss_terms:
             self.criterionFeat = torch.nn.L1Loss()
             self.loss_names_G['G_GAN_Feat'] = 0
-        if 'l1' in loss_terms:
+            self.weight['feat'] = lambda_feat
+        if 'L1' in loss_terms:
             self.criterionL1 = torch.nn.L1Loss()
             self.loss_names_G['L1'] = 0
             self.loss_names_G['vec'] = 0
+            self.weight['L1'] = lambda_L1
         if 'vgg' in loss_terms:
             self.criterionVGG = VGGLoss().to(self.device)
             self.loss_names_G['VGG'] = 0
+            self.weight['VGG'] = lambda_vgg
 
-        self.weight = {'L1': lambda_l1,
-                       'feat': lambda_feat,
-                       'VGG': lambda_vgg}
 
     def compute_GAN_losses(self, netD, fake, gt, for_discriminator):
         pred_fake = netD(fake)

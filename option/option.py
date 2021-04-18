@@ -1,5 +1,6 @@
 import argparse
 import os
+import glob
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -36,24 +37,25 @@ def parse_args():
     parser.add_argument('--decay', type=str, default='150-250-350')
     parser.add_argument('--gamma', type=int, default=0.5)
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--max_steps', type=int, default=7e5)
+    parser.add_argument('--max_step', type=int, default=100000)
     parser.add_argument('--eval_steps', type=int, default=1000)
     parser.add_argument('--num_workers', type=int, default=0)
 
     # misc
     parser.add_argument('--save_result', action='store_true')
     parser.add_argument('--ckpt_root', type=str, default='./ckpt')
+    parser.add_argument('--model_dir', type=str, default='./')
     parser.add_argument('--lambda_feat', type=float, default=10.0)
     parser.add_argument('--lambda_L1', type=float, default=1.0)
     parser.add_argument('--L1_decay', type=str, nargs='*', default=[])
     parser.add_argument('--lambda_vgg', type=float, default=10.0)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--name', type=str, default='photometricGAN')
-    parser.add_argument('--amp', type=str, default='O0')
+    # parser.add_argument('--amp', type=str, default='O0')
     parser.add_argument('--print_mem', type=bool, default=True)
     parser.add_argument('--step_label', type=str, default='latest')
     parser.add_argument('--continue_train', action='store_true')
-    parser.add_argument('--loss_terms', type=str, default='L1')
+    parser.add_argument('--loss_terms', type=str, default='L1|GAN|feat')
     parser.add_argument('--gpu_id', type=int, default=0)
 
     # test
@@ -63,7 +65,12 @@ def parse_args():
     parser.add_argument('--train', action='store_true', dest='train')
     parser.add_argument('--validation', action='store_true', dest='validation')
     parser.add_argument('--validation_interval', type=int, default=1000)
+    parser.add_argument('--log_interval', type=int, default=1000)
+    parser.add_argument('--save_interval', type=int, default=1000)
     parser.add_argument('--test', action='store_true', dest='test')
+
+    # photometrics specific options
+    parser.add_argument('--num_lighting', type=int, default=9)
 
 
     return parser.parse_args()
@@ -71,7 +78,12 @@ def parse_args():
 
 def get_option():
     opt = parse_args()
-    ckpt_dir = os.path.join(opt.ckpt_root, opt.name)
-    os.makedirs(ckpt_dir, exist_ok=True)
+    n = len([x for x in os.listdir(opt.ckpt_root) if x.startswith(opt.name)])
+    save_dir = os.path.join(opt.ckpt_root, f'{opt.name}_{n + 1}')
+    if opt.continue_train:
+        save_dir = opt.model_dir
+    else:
+        os.makedirs(save_dir, exist_ok=False)
+    setattr(opt, 'save_dir', save_dir)
     return opt
 
