@@ -47,12 +47,12 @@ class LossCollector:
         self.loss_names_G['G_GAN_Feat'] = loss_G_GAN_Feat
 
 
-    def compute_L1_losses(self, fake, gt, intermediate=False):
+    def compute_L1_losses(self, fake, gt, rand=False):
         if self.weight['L1'] == 0:
             return
         loss_L1 = self.criterionL1(fake, gt)
-        if intermediate:
-            self.loss_names_G['intermediate'] = loss_L1 * self.weight['L1']
+        if rand:
+            self.loss_names_G['rand'] = loss_L1 * self.weight['L1']
         else:
             self.loss_names_G['L1'] = loss_L1 * self.weight['L1']
 

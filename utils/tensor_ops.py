@@ -14,16 +14,14 @@ def im2tensor(im):
 def tensor2im(image_tensor, normalize=False):
     if isinstance(image_tensor, list):
         return [tensor2im(t, normalize) for t in image_tensor]
-    if len(image_tensor.size()) == 4:
-        image_tensor = image_tensor[0]
     image_numpy = image_tensor.cpu().float().numpy()
     if normalize:
-        image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0
+        image_numpy = (np.transpose(image_numpy, (0, 2, 3, 1)) + 1) / 2.0 * 255.0
     else:
-        image_numpy = np.transpose(image_numpy, (1, 2, 0)) * 255.0
+        image_numpy = np.transpose(image_numpy, (0, 2, 3, 1)) * 255.0
     image_numpy = np.clip(image_numpy, 0, 255).round()
-    if image_numpy.shape[2] == 1:
-        image_numpy = image_numpy[:, :, 0]
+    if image_numpy.shape[-1] == 1:
+        image_numpy = image_numpy[:, :,  :, 0]
     return image_numpy.astype(np.uint8)
 
 def quantize(img, rgb_range):

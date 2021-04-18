@@ -11,6 +11,7 @@ import numpy as np
 import random
 import os
 from utils import LossCollector, Visualizer
+from itertools import chain
 import glob
 
 
@@ -41,27 +42,24 @@ def main():
             json.dump(args, json_file)
 
 
-
     rand_G = RandomLightGenerator(input_dim=opt.input_dim,
                                   output_dim=opt.output_dim,
-                                  noise_dim=opt.noise_dim,
+                                  noise_nc=opt.noise_nc,
                                   num_downsample=opt.num_downsample,
                                   num_resblock=opt.num_resblock,
                                   ngf=opt.ngf,
                                   padding_mode=opt.padding_mode_G,
                                   max_channel=opt.max_channel)
-    studio_G = None
+    studio_G = StudioLightGenerator(input_dim=opt.input_dim,
+                                    output_dim=opt.output_dim,
+                                    num_downsample=opt.num_downsample,
+                                    num_resblock=opt.num_resblock,
+                                    ngf=opt.ngf,
+                                    padding_mode=opt.padding_mode_G,
+                                    max_channel=opt.max_channel)
     studio_D = None
     train_dataloader, val_dataloader = None, None
     if opt.train:
-        studio_G = StudioLightGenerator(input_dim=opt.input_dim,
-                                        output_dim=opt.output_dim,
-                                        noise_dim=opt.noise_dim,
-                                        num_downsample=opt.num_downsample,
-                                        num_resblock=opt.num_resblock,
-                                        ngf=opt.ngf,
-                                        padding_mode=opt.padding_mode_G,
-                                        max_channel=opt.max_channel)
         studio_D = MultiScaleDiscriminator(input_nc=opt.input_dim,
                                            num_D=opt.num_D,
                                            n_layer=opt.n_layer_D,
@@ -85,8 +83,9 @@ def main():
                                            transform=transforms.Compose([ToTensor()]))
             val_dataloader = DataLoader(bottles_val, batch_size=16, shuffle=False)
 
-    solver = Solver(rand_G, studio_G, studio_D)
+    solver = Solver(rand_G, studio_G, studio_D, gpu_id=opt.gpu_id)
     if opt.train:
+
         # for debug
         # from pyinstrument import Profiler
         # profiler = Profiler()
@@ -99,8 +98,8 @@ def main():
                                        lambda_vgg=opt.lambda_vgg,
                                        lambda_vec=opt.lambda_vec)
         solver.fit(gpu_id=opt.gpu_id,
-                   save_dir=opt.save_dir,
                    lr=opt.lr,
+                   save_dir=opt.save_dir,
                    max_step=opt.max_step,
                    gamma=opt.gamma,
                    decay=opt.decay,
@@ -111,18 +110,31 @@ def main():
                    val_dataloader=val_dataloader,
                    validation_interval=opt.validation_interval,
                    save_interval=opt.save_interval,
+                   optim_name=opt.optim_name,
                    log_interval=opt.log_interval,
                    continue_train=opt.continue_train,
                    save_result=opt.save_result)
         # profiler.stop()
         # print(profiler.output_text())
     if opt.test:
-        print('Evaluate {} (loaded from {})'.format(opt.netG, opt.pretrain))
-        psnr = solver.evaluate(solver.validation_loader, 'test')
-        print("{:.2f}".format(psnr))
-    # if opt.infer:
-    #     dataloader = generate_loader(opt, 'infer')
-    #     solver.inference(dataloader, opt.infer_name)
+        # create dataloader
+        # substitute train with test dataset you like
+        num_lighting = opt.num_lighting
+        base_train = os.path.join(opt.dataset_root, 'training_base_img_arr.npy')
+        lighting_train = os.path.join(opt.dataset_root, 'training_lighting_arr.npy')
+        bottles_train = Bottle128Dataset(base_img_file=base_train,
+                                         lighting_img_file=lighting_train,
+                                         num_lighting=num_lighting,
+                                         transform=transforms.Compose([ToTensor()]))
+        train_dataloader = DataLoader(bottles_train, batch_size=1, shuffle=False)
+        solver.test(gpu_id=opt.gpu_id,
+                    save_dir=opt.save_dir,
+                    visualizer=visualizer,
+                    test_dataloader=train_dataloader,
+                    save_result=True,
+                    step_label=opt.step_label,
+                    test_step=opt.test_step)
+
 
 if __name__ == '__main__':
     main()
