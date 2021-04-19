@@ -80,6 +80,9 @@ def parse_args():
 
 def get_option():
     opt = parse_args()
+    if not os.path.exists(f"{opt.ckpt_root}"):
+        os.makedirs(f"{opt.ckpt_root}")   # Added to avoid path not exist error on Win10
+
     n = len([x for x in os.listdir(opt.ckpt_root) if x.startswith(opt.name)])
     save_dir = os.path.join(opt.ckpt_root, f'{opt.name}_{n + 1}')
     if opt.continue_train or opt.model_dir is not None:

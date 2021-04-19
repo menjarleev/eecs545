@@ -73,7 +73,7 @@ def main():
                                          lighting_img_file=lighting_train,
                                          num_lighting=num_lighting,
                                          transform=transforms.Compose([ToTensor()]))
-        train_dataloader = DataLoader(bottles_train, batch_size=16, shuffle=True)
+        train_dataloader = DataLoader(bottles_train, batch_size=8, shuffle=True)
         if opt.validation:
             base_val= os.path.join(opt.dataset_root, 'val_base_img_arr.npy')
             lighting_val= os.path.join(opt.dataset_root, 'val_lighting_arr.npy')
@@ -81,7 +81,7 @@ def main():
                                            lighting_img_file=lighting_val,
                                            num_lighting=num_lighting,
                                            transform=transforms.Compose([ToTensor()]))
-            val_dataloader = DataLoader(bottles_val, batch_size=16, shuffle=False)
+            val_dataloader = DataLoader(bottles_val, batch_size=8, shuffle=False)
 
     solver = Solver(rand_G, studio_G, studio_D, gpu_id=opt.gpu_id)
     if opt.train:
