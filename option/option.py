@@ -37,7 +37,8 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--decay', type=str, default='150-250-350')
     parser.add_argument('--gamma', type=int, default=0.5)
-    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--batch_size', type=int, default=8)
+    parser.add_argument('--batch_size_eval', type=int, default=8)
     parser.add_argument('--max_step', type=int, default=100000)
     parser.add_argument('--eval_steps', type=int, default=1000)
     parser.add_argument('--num_workers', type=int, default=0)
@@ -79,6 +80,9 @@ def parse_args():
 
 def get_option():
     opt = parse_args()
+    if not os.path.exists(f"{opt.ckpt_root}"):
+        os.makedirs(f"{opt.ckpt_root}")   # Added to avoid path not exist error on Win10
+
     n = len([x for x in os.listdir(opt.ckpt_root) if x.startswith(opt.name)])
     save_dir = os.path.join(opt.ckpt_root, f'{opt.name}_{n + 1}')
     if opt.continue_train or opt.model_dir is not None:
