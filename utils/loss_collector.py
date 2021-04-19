@@ -2,14 +2,12 @@ from model.loss import *
 import torch
 
 class LossCollector:
-    def __init__(self, gpu_id, loss_terms, gan_mode, lambda_L1=0., lambda_feat=0., lambda_vgg=0., lambda_vec=0.):
+    def __init__(self, gpu_id, loss_terms, gan_mode, lambda_L1=0., lambda_feat=0., lambda_vgg=0., lambda_vec=0., lambda_mask=0., threshold_mask=0.8):
         self.device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
         self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
         self.loss_names_G = dict()
         self.loss_names_D = dict()
-        self.weight = {'L1': 0,
-                       'feat': 0,
-                       'VGG': 0}
+        self.weight = {}
         if 'GAN' in loss_terms:
             self.criterionGAN = GANLoss(gan_mode, tensor=self.tensor)
         if 'feat' in loss_terms:
@@ -24,6 +22,9 @@ class LossCollector:
         if 'vgg' in loss_terms:
             self.criterionVGG = VGGLoss().to(self.device)
             self.weight['VGG'] = lambda_vgg
+        if 'mask' in loss_terms:
+            self.threshold = threshold_mask
+            self.weight['mask'] = lambda_mask
 
 
     def compute_GAN_losses(self, netD, fake, gt, for_discriminator):
@@ -38,8 +39,15 @@ class LossCollector:
             loss_G_GAN = self.criterionGAN(pred_fake, True)
             self.loss_names_G['G_GAN'] = loss_G_GAN
 
+    def compute_mask_losses(self, fake, gt, segmap):
+        mask = segmap < self.threshold
+        abs_error = torch.abs(fake - gt)
+        loss = torch.masked_select(abs_error, mask)
+        loss = torch.mean(loss)
+        self.loss_names_G['G_mask'] = loss * self.weight['mask']
+
     def compute_feat_losses(self, netD, fake, gt):
-        if self.weight['feat'] == 0:
+        if not 'feat' in self.weight.keys():
             return
         pred_fake = netD(fake)
         pred_real = netD(gt)
@@ -48,23 +56,23 @@ class LossCollector:
 
 
     def compute_L1_losses(self, fake, gt, rand=False):
-        if self.weight['L1'] == 0:
+        if not 'L1' in self.weight.keys():
             return
         loss_L1 = self.criterionL1(fake, gt)
         if rand:
-            self.loss_names_G['rand'] = loss_L1 * self.weight['L1']
+            self.loss_names_G['G_rand'] = loss_L1 * self.weight['L1']
         else:
-            self.loss_names_G['L1'] = loss_L1 * self.weight['L1']
+            self.loss_names_G['G_L1'] = loss_L1 * self.weight['L1']
 
     def compute_vec_losses(self, fake, gt):
-        if self.weight['vec'] == 0:
+        if not 'vec' in self.weight.keys():
             return
         loss_vec = self.criterionVec(fake, gt)
         self.loss_names_G['vec'] = loss_vec * self.weight['vec']
 
 
     def compute_VGG_losses(self, fake_image, gt_image):
-        if self.weight['VGG'] == 0:
+        if not 'VGG' in self.weight:
             return
         if type(fake_image) == list:
             fake_image = fake_image[-1]
@@ -90,3 +98,4 @@ class LossCollector:
         optimizer.step()
         scheduler.step()
         return losses
+

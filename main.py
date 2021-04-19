@@ -44,18 +44,21 @@ def main():
 
     rand_G = RandomLightGenerator(input_dim=opt.input_dim,
                                   output_dim=opt.output_dim,
-                                  noise_nc=opt.noise_nc,
+                                  z_dim=opt.z_dim,
                                   num_downsample=opt.num_downsample,
                                   num_resblock=opt.num_resblock,
                                   ngf=opt.ngf,
                                   padding_mode=opt.padding_mode_G,
+                                  latent_size=opt.latent_size,
                                   max_channel=opt.max_channel)
     studio_G = StudioLightGenerator(input_dim=opt.input_dim,
                                     output_dim=opt.output_dim,
+                                    z_dim=opt.z_dim,
                                     num_downsample=opt.num_downsample,
                                     num_resblock=opt.num_resblock,
                                     ngf=opt.ngf,
                                     padding_mode=opt.padding_mode_G,
+                                    latent_size=opt.latent_size,
                                     max_channel=opt.max_channel)
     studio_D = None
     train_dataloader, val_dataloader = None, None
@@ -73,7 +76,7 @@ def main():
                                          lighting_img_file=lighting_train,
                                          num_lighting=num_lighting,
                                          transform=transforms.Compose([ToTensor()]))
-        train_dataloader = DataLoader(bottles_train, batch_size=opt.batch_size_train, shuffle=True)
+        train_dataloader = DataLoader(bottles_train, batch_size=opt.batch_size, shuffle=True)
         if opt.validation:
             base_val= os.path.join(opt.dataset_root, 'val_base_img_arr.npy')
             lighting_val= os.path.join(opt.dataset_root, 'val_lighting_arr.npy')
@@ -96,7 +99,9 @@ def main():
                                        lambda_L1=opt.lambda_L1,
                                        lambda_feat=opt.lambda_feat,
                                        lambda_vgg=opt.lambda_vgg,
-                                       lambda_vec=opt.lambda_vec)
+                                       lambda_vec=opt.lambda_vec,
+                                       lambda_mask=opt.lambda_mask,
+                                       threshold_mask=opt.threshold_mask)
         solver.fit(gpu_id=opt.gpu_id,
                    lr=opt.lr,
                    save_dir=opt.save_dir,
@@ -134,6 +139,26 @@ def main():
                     save_result=True,
                     step_label=opt.step_label,
                     test_step=opt.test_step)
+
+    if opt.inference:
+        # create dataloader
+        # substitute train with infer dataset you like
+        base_val = os.path.join(opt.dataset_root, 'val_base_img_arr.npy')
+        lighting_val = os.path.join(opt.dataset_root, 'val_lighting_arr.npy')
+        bottles_val = Bottle128Dataset(base_img_file=base_val,
+                                       lighting_img_file=lighting_val,
+                                       num_lighting=opt.num_lighting,
+                                       transform=transforms.Compose([ToTensor()]))
+        val_dataloader = DataLoader(bottles_val, batch_size=opt.batch_size_eval, shuffle=False)
+        solver.inference(gpu_id=opt.gpu_id,
+                         dataloader=val_dataloader,
+                         save_dir=opt.save_dir,
+                         noise_nc=opt.noise_nc,
+                         input_size=opt.input_size,
+                         batch_size=opt.batch_size_eval,
+                         num_lighting_infer=opt.num_lighting_infer,
+                         label=opt.label_infer,
+                         visualizer=visualizer)
 
 
 if __name__ == '__main__':

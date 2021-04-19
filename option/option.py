@@ -49,16 +49,17 @@ def parse_args():
     parser.add_argument('--model_dir', type=str, default=None)
     parser.add_argument('--lambda_feat', type=float, default=10.0)
     parser.add_argument('--lambda_L1', type=float, default=10.0)
-    parser.add_argument('--L1_decay', type=str, nargs='*', default=[])
     parser.add_argument('--lambda_vgg', type=float, default=10.0)
     parser.add_argument('--lambda_vec', type=float, default=10.0)
+    parser.add_argument('--lambda_mask', type=float, default=20.0)
+    parser.add_argument('--threshold_mask', type=float, default=-0.9)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--name', type=str, default='photometricGAN')
     # parser.add_argument('--amp', type=str, default='O0')
     parser.add_argument('--print_mem', type=bool, default=True)
     parser.add_argument('--step_label', type=str, default='latest')
     parser.add_argument('--continue_train', action='store_true')
-    parser.add_argument('--loss_terms', type=str, default='L1|GAN|feat|vec')
+    parser.add_argument('--loss_terms', type=str, default='L1|GAN|feat|vec|mask')
     parser.add_argument('--gpu_id', type=int, default=0)
 
     # test
@@ -69,10 +70,17 @@ def parse_args():
     parser.add_argument('--log_interval', type=int, default=1000)
     parser.add_argument('--save_interval', type=int, default=1000)
     parser.add_argument('--test', action='store_true', dest='test')
-    parser.add_argument('--test_step', type=str, default='all')
+    parser.add_argument('--test_step', type=int, default=-1)
 
     # photometrics specific options
     parser.add_argument('--num_lighting', type=int, default=9)
+    parser.add_argument('--z_dim', type=int, default=256)
+
+    # inference
+    parser.add_argument('--inference', action='store_true', dest='inference')
+    parser.add_argument('--num_lighting_infer', type=int, default=9)
+    parser.add_argument('--label_infer', type=str, default='best', choices=['best', 'latest'])
+    parser.add_argument('--latent_size', type=int, nargs='+', default=(8, 8))
 
 
     return parser.parse_args()

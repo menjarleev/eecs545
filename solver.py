@@ -95,7 +95,7 @@ class Solver:
                                      .format(latest_result['step'] // 1000))
                 start = latest_result['step'] if step_label == 'latest' else best_result['step']
             else:
-                raise FileNotFoundError('iteration file at %s is not found' % json_path)
+                visualizer.log_print('iteration file at %s is not found' % json_path)
 
         for step in tqdm(range(start, max_step), desc='train', leave=False):
             try:
@@ -105,6 +105,7 @@ class Solver:
                 inputs = next(iters)
             rand_img = inputs['lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
+            lc_img = inputs['lc_all'].to(self.device)
 
             fake_studio_img_forward, light_vec_forward, _ = self.studio_G(rand_img)
             fake_rand_img_forward, _ = self.rand_G(fake_studio_img_forward, light_vec_forward.detach())
@@ -114,6 +115,8 @@ class Solver:
             fake_studio_img_backward, fake_light_vec_backward, res_studio_backward = self.studio_G(fake_rand_img_backward)
 
             loss_collector.compute_GAN_losses(self.studio_D, fake_studio_img_backward, studio_img, for_discriminator=False)
+            segmap = torch.mean(lc_img, dim=1)
+            loss_collector.compute_mask_losses(fake_rand_img_forward, fake_rand_img_backward, segmap)
             loss_collector.compute_feat_losses(self.studio_D, fake_studio_img_backward, studio_img)
             loss_collector.compute_VGG_losses(fake_studio_img_backward, studio_img)
             loss_collector.compute_L1_losses(fake_studio_img_forward, studio_img)
@@ -154,7 +157,7 @@ class Solver:
              test_dataloader=None,
              save_result=True,
              step_label='best',
-             test_step='all'):
+             test_step=-1):
         self.to(gpu_id)
         self.load(save_dir, step_label, visualizer)
         json_path = os.path.join(save_dir, 'status.txt')
@@ -201,29 +204,30 @@ class Solver:
         self.save(save_dir, 'latest')
 
     @torch.no_grad()
-    def inference(self, dataloader, save_dir, noise_nc, input_size, batch_size):
+    def inference(self, gpu_id, dataloader, save_dir, noise_nc, input_size, batch_size, num_lighting_infer, label, visualizer):
+        self.to(gpu_id)
+        self.load(save_dir, label, visualizer)
         self.rand_G.eval()
         tqdm_data_loader = tqdm(dataloader, desc='infer', leave=False)
         rand_img_dir = os.path.join(save_dir, f'infer_rand')
         os.makedirs(rand_img_dir, exist_ok=True)
         for i, inputs in enumerate(tqdm_data_loader):
-            studio_img = inputs['base'].to(self.device)
-            light_vec = torch.randn((batch_size, noise_nc, *input_size))
-            fake_rand_img, _ = self.rand_G(studio_img, light_vec)
-            fake_rand_img = tensor2im(quantize(fake_rand_img, 1))
-            fake_file = os.path.join(rand_img_dir, f'{i + 1}.jpg')
-            io.imsave(fake_file, fake_rand_img)
+            for j in range(num_lighting_infer):
+                studio_img = inputs['base'].to(self.device)
+                light_vec = torch.randn((batch_size, noise_nc, *input_size)).to(self.device)
+                fake_rand_img, _ = self.rand_G(studio_img, light_vec)
+                fake_rand_img = tensor2im(quantize(fake_rand_img, 1))
+                for k in range(studio_img.shape[0]):
+                    fake_k_lighting_j = fake_rand_img[k, :, :]
+                    save_folder = os.path.join(rand_img_dir, str(k + 1))
+                    os.makedirs(save_folder, exist_ok=True)
+                    file_path = os.path.join(save_folder, f'{j + 1}.jpg')
+                    io.imsave(file_path, fake_k_lighting_j)
         self.rand_G.train()
 
 
     @torch.no_grad()
-    def evaluate(self, dataloader, save_dir, phase='test', save_result=False, eval_step='all'):
-        if eval_step == 'all':
-            eval_step = -1
-        elif eval_step.isdigit():
-            eval_step = int(eval_step)
-        else:
-            raise ValueError(f'{eval_step} is not a digit')
+    def evaluate(self, dataloader, save_dir, phase='test', save_result=False, eval_step=-1):
         self.rand_G.eval()
         self.studio_G.eval()
         psnr_studio = 0

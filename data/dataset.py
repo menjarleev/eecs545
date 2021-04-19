@@ -8,7 +8,8 @@ class ToTensor(object):
     def __call__(self, sample):   
         return {
             'base' : torch.from_numpy(sample['base']),
-            'lc' : torch.from_numpy(sample['lc'])
+            'lc' : torch.from_numpy(sample['lc']),
+            'lc_all': torch.from_numpy(sample['lc_all'])
         }
 
 class Bottle128Dataset(Dataset):
@@ -35,6 +36,7 @@ class Bottle128Dataset(Dataset):
         sample = {'base': self.base_img_array[0, idx, :, :, :].astype(np.float32)}
         random_lc = np.random.randint(low = 0, high = self.num_lighting)
         sample['lc'] = self.lighting_array[random_lc, idx, :, :, :].astype(np.float32)
+        sample['lc_all'] = self.lighting_array[:, idx, :, :, :].astype(np.float32)
         if self.transform:
             sample = self.transform(sample)
 
