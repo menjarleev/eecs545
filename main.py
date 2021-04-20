@@ -44,24 +44,28 @@ def main():
 
     rand_G = RandomLightGenerator(input_dim=opt.input_dim,
                                   output_dim=opt.output_dim,
+                                  l_dim=opt.l_dim,
                                   z_dim=opt.z_dim,
-                                  bottleneck_z=opt.bottleneck_z,
                                   num_downsample=opt.num_downsample,
                                   num_resblock=opt.num_resblock,
                                   ngf=opt.ngf,
                                   padding_mode=opt.padding_mode_G,
                                   latent_size=opt.latent_size,
-                                  max_channel=opt.max_channel)
+                                  max_channel=opt.max_channel,
+                                  n_bottleneck=opt.n_bottleneck,
+                                  bottleneck_dim=opt.bottleneck_dim)
     studio_G = StudioLightGenerator(input_dim=opt.input_dim,
                                     output_dim=opt.output_dim,
+                                    l_dim=opt.l_dim,
                                     z_dim=opt.z_dim,
-                                    bottleneck_z=opt.bottleneck_z,
                                     num_downsample=opt.num_downsample,
                                     num_resblock=opt.num_resblock,
                                     ngf=opt.ngf,
                                     padding_mode=opt.padding_mode_G,
                                     latent_size=opt.latent_size,
-                                    max_channel=opt.max_channel)
+                                    max_channel=opt.max_channel,
+                                    n_bottleneck=opt.n_bottleneck,
+                                    bottleneck_dim=opt.bottleneck_dim)
     studio_D = None
     train_dataloader, val_dataloader = None, None
     if opt.train:
@@ -77,6 +81,8 @@ def main():
         bottles_train = Bottle128Dataset(base_img_file=base_train,
                                          lighting_img_file=lighting_train,
                                          num_lighting=num_lighting,
+                                         num_neg_sample=opt.num_neg_sample,
+                                         num_sample=95,
                                          transform=transforms.Compose([ToTensor()]))
         train_dataloader = DataLoader(bottles_train, batch_size=opt.batch_size, shuffle=True)
         if opt.validation:
@@ -85,6 +91,8 @@ def main():
             bottles_val = Bottle128Dataset(base_img_file=base_val,
                                            lighting_img_file=lighting_val,
                                            num_lighting=num_lighting,
+                                           num_neg_sample=1,
+                                           num_sample=5,
                                            transform=transforms.Compose([ToTensor()]))
             val_dataloader = DataLoader(bottles_val, batch_size=opt.batch_size_eval, shuffle=False)
 
@@ -103,6 +111,9 @@ def main():
                                        lambda_vgg=opt.lambda_vgg,
                                        lambda_vec=opt.lambda_vec,
                                        lambda_mask=opt.lambda_mask,
+                                       lambda_mutual=opt.lambda_mutual,
+                                       lambda_contrastive=opt.lambda_contrastive,
+                                       tau=opt.tau,
                                        threshold_mask=opt.threshold_mask)
         solver.fit(gpu_id=opt.gpu_id,
                    lr=opt.lr,
@@ -132,6 +143,8 @@ def main():
         bottles_train = Bottle128Dataset(base_img_file=base_train,
                                          lighting_img_file=lighting_train,
                                          num_lighting=num_lighting,
+                                         num_neg_sample=1,
+                                         num_sample=95,
                                          transform=transforms.Compose([ToTensor()]))
         train_dataloader = DataLoader(bottles_train, batch_size=opt.batch_size_eval, shuffle=False)
         solver.test(gpu_id=opt.gpu_id,
@@ -150,6 +163,8 @@ def main():
         bottles_val = Bottle128Dataset(base_img_file=base_val,
                                        lighting_img_file=lighting_val,
                                        num_lighting=opt.num_lighting,
+                                       num_neg_sample=1,
+                                       num_sample=12,
                                        transform=transforms.Compose([ToTensor()]))
         val_dataloader = DataLoader(bottles_val, batch_size=opt.batch_size_eval, shuffle=False)
         solver.inference(gpu_id=opt.gpu_id,

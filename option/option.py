@@ -30,6 +30,7 @@ def parse_args():
 
     # dataset
     parser.add_argument('--dataset_root', type=str, default='./')
+    parser.add_argument('--num_neg_sample', type=int, default=4)
 
     # training setups
     parser.add_argument('--optim_name', type=str, default='Adam',
@@ -47,20 +48,25 @@ def parse_args():
     parser.add_argument('--save_result', action='store_true')
     parser.add_argument('--ckpt_root', type=str, default='./ckpt')
     parser.add_argument('--model_dir', type=str, default=None)
-    parser.add_argument('--lambda_feat', type=float, default=10.0)
-    parser.add_argument('--lambda_L1', type=float, default=10.0)
-    parser.add_argument('--lambda_vgg', type=float, default=10.0)
-    parser.add_argument('--lambda_vec', type=float, default=50.0)
-    parser.add_argument('--lambda_mask', type=float, default=20.0)
-    parser.add_argument('--threshold_mask', type=float, default=-0.9)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--name', type=str, default='photometricGAN')
     # parser.add_argument('--amp', type=str, default='O0')
     parser.add_argument('--print_mem', type=bool, default=True)
     parser.add_argument('--step_label', type=str, default='latest')
     parser.add_argument('--continue_train', action='store_true')
-    parser.add_argument('--loss_terms', type=str, default='L1|GAN|feat|vec|mask')
     parser.add_argument('--gpu_id', type=int, default=0)
+
+    # loss collector
+    parser.add_argument('--lambda_feat', type=float, default=10.0)
+    parser.add_argument('--lambda_L1', type=float, default=10.0)
+    parser.add_argument('--lambda_vgg', type=float, default=10.0)
+    parser.add_argument('--lambda_vec', type=float, default=5.0)
+    parser.add_argument('--lambda_mask', type=float, default=10.0)
+    parser.add_argument('--threshold_mask', type=float, default=-0.9)
+    parser.add_argument('--lambda_contrastive', type=float, default=5.0)
+    parser.add_argument('--tau', type=float, default=0.07)
+    parser.add_argument('--lambda_mutual', type=float, default=10.0)
+    parser.add_argument('--loss_terms', type=str, default='L1|GAN|feat|vec|mutual|contrastive')
 
     # test
 
@@ -74,14 +80,16 @@ def parse_args():
 
     # photometrics specific options
     parser.add_argument('--num_lighting', type=int, default=9)
-    parser.add_argument('--z_dim', type=int, default=1024)
-    parser.add_argument('--bottleneck_z', type=int, default=512)
+    parser.add_argument('--l_dim', type=int, default=256)
+    parser.add_argument('--z_dim', type=int, default=256)
+    parser.add_argument('--bottleneck_dim', type=int, default=256)
+    parser.add_argument('--n_bottleneck', type=int, default=3)
 
     # inference
     parser.add_argument('--inference', action='store_true', dest='inference')
     parser.add_argument('--num_lighting_infer', type=int, default=9)
     parser.add_argument('--label_infer', type=str, default='best', choices=['best', 'latest'])
-    parser.add_argument('--latent_size', type=int, nargs='+', default=(16, 16))
+    parser.add_argument('--latent_size', type=int, nargs='+', default=(8, 8))
 
 
     return parser.parse_args()

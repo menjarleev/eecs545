@@ -1,8 +1,21 @@
 from model.loss import *
 import torch
+import torch.nn as nn
 
 class LossCollector:
-    def __init__(self, gpu_id, loss_terms, gan_mode, lambda_L1=0., lambda_feat=0., lambda_vgg=0., lambda_vec=0., lambda_mask=0., threshold_mask=0.8):
+    def __init__(self,
+                 gpu_id,
+                 loss_terms,
+                 gan_mode,
+                 lambda_L1=0.,
+                 lambda_feat=0.,
+                 lambda_vgg=0.,
+                 lambda_vec=0.,
+                 lambda_mutual=0,
+                 lambda_mask=0.,
+                 lambda_contrastive=0.,
+                 tau=0.07,
+                 threshold_mask=0.8):
         self.device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
         self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
         self.loss_names_G = dict()
@@ -25,6 +38,20 @@ class LossCollector:
         if 'mask' in loss_terms:
             self.threshold = threshold_mask
             self.weight['mask'] = lambda_mask
+        if 'contrastive' in loss_terms:
+            self.weight['contrastive'] = lambda_contrastive
+        if 'mutual' in loss_terms:
+            self.weight['mutual'] = lambda_mutual
+
+    def compute_contrastive_losses(self, ref_pos, ref_neg, pos_sample, neg_sample, cls='l'):
+        l_pos = torch.einsum('nc, nmc->nm', ref_pos, pos_sample)
+        l_neg = torch.einsum('nc, nmc->nm', ref_neg, neg_sample)
+        logits = torch.cat([l_pos, l_neg], dim=1)
+        label = torch.ones_like(logits)
+        label[:, :l_pos.shape[1]] = -1
+        loss = torch.exp(label * logits)
+        loss = torch.mean(loss)
+        self.loss_names_G[f'{cls}_contrastive'] = loss * self.weight['contrastive']
 
 
     def compute_GAN_losses(self, netD, fake, gt, for_discriminator):
@@ -55,14 +82,23 @@ class LossCollector:
         self.loss_names_G['G_GAN_Feat'] = loss_G_GAN_Feat
 
 
-    def compute_L1_losses(self, fake, gt, rand=False):
+    def compute_mutual_losses(self, n_sample):
+        if not 'mutual' in self.weight.keys():
+            return
+        loss = 0
+        n = 0
+        for i in range(len(n_sample)):
+            for j in range(i + 1, len(n_sample)):
+                loss += self.criterionL1(n_sample[i], n_sample[j])
+                n += 1
+        self.loss_names_G['G_z_mutual'] = self.weight['mutual'] * loss
+
+    def compute_L1_losses(self, fake, gt):
         if not 'L1' in self.weight.keys():
             return
-        loss_L1 = self.criterionL1(fake, gt)
-        if rand:
-            self.loss_names_G['G_rand'] = loss_L1 * self.weight['L1']
-        else:
-            self.loss_names_G['G_L1'] = loss_L1 * self.weight['L1']
+        loss = self.criterionL1(fake, gt)
+        self.loss_names_G['G_L1'] = self.weight['L1'] * loss
+
 
     def compute_vec_losses(self, fake, gt):
         if not 'vec' in self.weight.keys():

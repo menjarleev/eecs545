@@ -103,25 +103,34 @@ class Solver:
             except (UnboundLocalError, StopIteration):
                 iters = iter(train_dataloader)
                 inputs = next(iters)
-            rand_img = inputs['lc'].to(self.device)
-            studio_img = inputs['base'].to(self.device)
-            lc_img = inputs['lc_all'].to(self.device)
+            rand = inputs['lc'].to(self.device)
+            studio = inputs['base'].to(self.device)
+            lc_k = inputs['lc_k'].to(self.device)
+            b_size, n_lc, n_ch, h, w = lc_k.shape
+            lc_k = lc_k.view(b_size * n_lc, n_ch, h, w)
+            ctn_k = inputs['ctn_k'].to(self.device)
+            _, n_shape, _, _, _ = ctn_k.shape
+            ctn_k = ctn_k.view(b_size * n_shape, n_ch, h, w)
 
-            fake_studio_img_forward, light_vec_forward, _ = self.studio_G(rand_img)
-            fake_rand_img_forward, _ = self.rand_G(fake_studio_img_forward, light_vec_forward.detach())
+            fake_studio_fwd, z_vec_fwd, l_vec_fwd = self.studio_G(rand)
+            _, z_vec_ctn_fwd, l_vec_ctn_fwd = self.studio_G(lc_k)
+            z_vec_ctn_fwd, l_vec_ctn_fwd = z_vec_ctn_fwd.view(b_size, n_lc, -1), l_vec_ctn_fwd.view(b_size, n_lc, -1)
+            _, z_vec_lc_fwd, l_vec_lc_fwd = self.studio_G(ctn_k)
+            z_vec_lc_fwd, l_vec_lc_fwd = z_vec_lc_fwd.view(b_size, n_shape, -1), l_vec_lc_fwd.view(b_size, n_shape, -1)
+            loss_collector.compute_contrastive_losses(z_vec_fwd, l_vec_fwd, z_vec_ctn_fwd.detach(), l_vec_ctn_fwd.detach(), 'ctn')
+            loss_collector.compute_contrastive_losses(l_vec_fwd, z_vec_fwd, l_vec_lc_fwd.detach(), z_vec_lc_fwd.detach(), 'lc')
 
-            light_vec_backward = torch.rand_like(light_vec_forward, requires_grad=False)
-            fake_rand_img_backward, res_rand_backward = self.rand_G(studio_img, light_vec_backward)
-            fake_studio_img_backward, fake_light_vec_backward, res_studio_backward = self.studio_G(fake_rand_img_backward)
+            fake_rand_fwd, z_vec_hat_fwd = self.rand_G(fake_studio_fwd, l_vec_fwd)
 
-            loss_collector.compute_GAN_losses(self.studio_D, fake_studio_img_backward, studio_img, for_discriminator=False)
-            segmap = torch.mean(lc_img, dim=1)
-            loss_collector.compute_mask_losses(fake_rand_img_forward, fake_rand_img_backward, segmap)
-            loss_collector.compute_feat_losses(self.studio_D, fake_studio_img_backward, studio_img)
-            loss_collector.compute_VGG_losses(fake_studio_img_backward, studio_img)
-            loss_collector.compute_L1_losses(fake_studio_img_forward, studio_img)
-            loss_collector.compute_L1_losses(fake_rand_img_forward, rand_img, rand=True)
-            loss_collector.compute_vec_losses(fake_light_vec_backward, light_vec_backward)
+            l_vec_bwd = torch.rand_like(l_vec_fwd, requires_grad=False)
+            fake_rand_bwd, z_vec_bwd = self.rand_G(studio, l_vec_bwd)
+            fake_studio_bwd, z_vec_hat_bwd, l_vec_hat_bwd = self.studio_G(fake_rand_bwd)
+
+            loss_collector.compute_GAN_losses(self.studio_D, fake_studio_bwd, studio, for_discriminator=False)
+            loss_collector.compute_feat_losses(self.studio_D, fake_studio_bwd, studio)
+            loss_collector.compute_L1_losses(fake_rand_fwd, rand)
+            loss_collector.compute_vec_losses(l_vec_bwd, l_vec_hat_bwd)
+            loss_collector.compute_mutual_losses((z_vec_fwd, z_vec_hat_fwd, z_vec_bwd, z_vec_hat_bwd))
 
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
 
@@ -129,7 +138,7 @@ class Solver:
             #     torch.nn.utils.clip_grad_value_(self.rand_G.parameters(), gclip)
             #     torch.nn.utils.clip_grad_value_(self.studio_G.parameters(), gclip)
 
-            loss_collector.compute_GAN_losses(self.studio_D, fake_studio_img_backward.detach(), studio_img, for_discriminator=True)
+            loss_collector.compute_GAN_losses(self.studio_D, fake_studio_bwd.detach(), studio, for_discriminator=True)
             loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
 
             loss_dict = {**loss_collector.loss_names_G, **loss_collector.loss_names_D}
@@ -179,14 +188,14 @@ class Solver:
                                         phase='val',
                                         save_result=save_result)
             curr_result.update({'step': step})
-            if best_result is None or (curr_result['psnr_rand'] >= best_result['psnr_rand'] and curr_result['ssim_rand'] >= best_result['ssim_rand']):
+            if best_result is None or (curr_result['ssim_rand'] >= best_result['ssim_rand']):
                 log_result['best'] = curr_result
                 best_result = curr_result
                 self.save(save_dir, 'best')
                 self.save_log_iter(log_result, save_dir, 'best', visualizer)
             log_result['latest'] = curr_result
             curr_log = 'curr result \n'
-            for k, v in best_result.items():
+            for k, v in curr_result.items():
                 if k != 'step':
                     curr_log += f'{k}: {v:.2f} '
             best_log = 'best result \n'
@@ -245,9 +254,9 @@ class Solver:
             rand_img = inputs['lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
 
-            fake_studio_img, light_vec_forward, _ = self.studio_G(rand_img)
+            fake_studio_img, _, l_vec_fwd = self.studio_G(rand_img)
 
-            fake_rand_img, _ = self.rand_G(studio_img, light_vec_forward)
+            fake_rand_img, _ = self.rand_G(studio_img, l_vec_fwd)
             crop_size = 10
             fake_studio = tensor2im(fake_studio_img)
             fake_rand = tensor2im(fake_rand_img)
