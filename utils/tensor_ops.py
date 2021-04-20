@@ -11,17 +11,14 @@ def im2tensor(im):
         tensor = tensor.div_(255.0)
         return tensor
 
-def tensor2im(image_tensor, normalize=False):
+def tensor2im(image_tensor, range: tuple = (-1, 1)):
     if isinstance(image_tensor, list):
-        return [tensor2im(t, normalize) for t in image_tensor]
+        return [tensor2im(t, range) for t in image_tensor]
     image_numpy = image_tensor.cpu().float().numpy()
-    if normalize:
-        image_numpy = (np.transpose(image_numpy, (0, 2, 3, 1)) + 1) / 2.0 * 255.0
-    else:
-        image_numpy = np.transpose(image_numpy, (0, 2, 3, 1)) * 255.0
+    image_numpy = (np.transpose(image_numpy, (0, 2, 3, 1)) - range[0]) / (range[1] - range[0]) * 255.0
     image_numpy = np.clip(image_numpy, 0, 255).round()
     if image_numpy.shape[-1] == 1:
-        image_numpy = image_numpy[:, :,  :, 0]
+        image_numpy = image_numpy[:, :, :, 0]
     return image_numpy.astype(np.uint8)
 
 def quantize(img, rgb_range):

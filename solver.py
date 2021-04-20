@@ -216,7 +216,7 @@ class Solver:
                 studio_img = inputs['base'].to(self.device)
                 light_vec = torch.randn((batch_size, noise_nc, *input_size)).to(self.device)
                 fake_rand_img, _ = self.rand_G(studio_img, light_vec)
-                fake_rand_img = tensor2im(quantize(fake_rand_img, 1))
+                fake_rand_img = tensor2im(fake_rand_img)
                 for k in range(studio_img.shape[0]):
                     fake_k_lighting_j = fake_rand_img[k, :, :]
                     save_folder = os.path.join(rand_img_dir, str(k + 1))
@@ -249,10 +249,10 @@ class Solver:
 
             fake_rand_img, _ = self.rand_G(studio_img, light_vec_forward)
             crop_size = 10
-            fake_studio = tensor2im(quantize(fake_studio_img, 1))
-            fake_rand = tensor2im(quantize(fake_rand_img, 1))
-            rand = tensor2im(quantize(rand_img, 1))
-            studio = tensor2im(quantize(studio_img, 1))
+            fake_studio = tensor2im(fake_studio_img)
+            fake_rand = tensor2im(fake_rand_img)
+            rand = tensor2im(rand_img)
+            studio = tensor2im(studio_img)
             fake_studio = fake_studio[:, crop_size:-crop_size, crop_size:-crop_size]
             fake_rand = fake_rand[:, crop_size:-crop_size, crop_size:-crop_size]
             gt_studio = studio[:, crop_size:-crop_size, crop_size:-crop_size]

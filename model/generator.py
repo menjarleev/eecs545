@@ -15,7 +15,7 @@ class RandomLightGenerator(nn.Module):
                  ngf,
                  padding_mode='reflect',
                  max_channel=256,
-                 bottle_neck_z=256,
+                 bottleneck_z=256,
                  conv_num_z=2,
                  latent_size=(8, 8),
                  actv=nn.ReLU,
@@ -29,9 +29,9 @@ class RandomLightGenerator(nn.Module):
             num_c *= 2
         self.latent_size = latent_size
         self.z_channel = z_channel = n_channel[-1][-1] // (conv_num_z**2)
-        self.from_z_linear = nn.Sequential(nn.Linear(z_dim, bottle_neck_z),
+        self.from_z_linear = nn.Sequential(nn.Linear(z_dim, bottleneck_z),
                                            actv(),
-                                           nn.Linear(bottle_neck_z, latent_size[0] * latent_size[1] * z_channel))
+                                           nn.Linear(bottleneck_z, latent_size[0] * latent_size[1] * z_channel))
         from_z_conv = []
         for i in range(conv_num_z):
             from_z_conv += [nn.Conv2d(z_channel, z_channel * 2, 3, 1, 1, padding_mode=padding_mode),
@@ -110,7 +110,7 @@ class StudioLightGenerator(nn.Module):
                  num_resblock,
                  ngf,
                  latent_size=(128, 128),
-                 bottle_neck_z=256,
+                 bottleneck_z=256,
                  padding_mode='reflect',
                  max_channel=256,
                  actv=nn.ReLU,
@@ -141,9 +141,9 @@ class StudioLightGenerator(nn.Module):
                           actv()]
             z_channel = z_channel // 2
         self.to_z_conv = nn.Sequential(*to_z_conv)
-        self.to_z_linear = nn.Sequential(nn.Linear(z_channel * latent_size[0] * latent_size[1], bottle_neck_z),
+        self.to_z_linear = nn.Sequential(nn.Linear(z_channel * latent_size[0] * latent_size[1], bottleneck_z),
                                           actv(),
-                                          nn.Linear(bottle_neck_z, z_dim),
+                                          nn.Linear(bottleneck_z, z_dim),
                                           nn.Tanh())
 
         self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode,  norm_layer, actv)

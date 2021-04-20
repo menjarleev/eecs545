@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--lambda_feat', type=float, default=10.0)
     parser.add_argument('--lambda_L1', type=float, default=10.0)
     parser.add_argument('--lambda_vgg', type=float, default=10.0)
-    parser.add_argument('--lambda_vec', type=float, default=10.0)
+    parser.add_argument('--lambda_vec', type=float, default=50.0)
     parser.add_argument('--lambda_mask', type=float, default=20.0)
     parser.add_argument('--threshold_mask', type=float, default=-0.9)
     parser.add_argument('--debug', action='store_true')
@@ -70,17 +70,18 @@ def parse_args():
     parser.add_argument('--log_interval', type=int, default=1000)
     parser.add_argument('--save_interval', type=int, default=1000)
     parser.add_argument('--test', action='store_true', dest='test')
-    parser.add_argument('--test_step', type=int, default=-1)
+    parser.add_argument('--test_step', type=int, default=50)
 
     # photometrics specific options
     parser.add_argument('--num_lighting', type=int, default=9)
-    parser.add_argument('--z_dim', type=int, default=256)
+    parser.add_argument('--z_dim', type=int, default=1024)
+    parser.add_argument('--bottleneck_z', type=int, default=512)
 
     # inference
     parser.add_argument('--inference', action='store_true', dest='inference')
     parser.add_argument('--num_lighting_infer', type=int, default=9)
     parser.add_argument('--label_infer', type=str, default='best', choices=['best', 'latest'])
-    parser.add_argument('--latent_size', type=int, nargs='+', default=(8, 8))
+    parser.add_argument('--latent_size', type=int, nargs='+', default=(16, 16))
 
 
     return parser.parse_args()
