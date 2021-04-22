@@ -11,10 +11,11 @@ import json
 
 class Solver:
 
-    def __init__(self, rand_G, studio_G=None, studio_D=None, name='PhotometricGAN', gpu_id=-1):
+    def __init__(self, rand_G, rand_D=None, studio_G=None, name='PhotometricGAN', gpu_id=-1):
         self.name = name
         self.rand_G = rand_G
-        self.studio_G, self.studio_D = studio_G, studio_D
+        self.rand_D = rand_D
+        self.studio_G = studio_G
         self.device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
 
     def to(self, device):
@@ -28,8 +29,8 @@ class Solver:
             self.rand_G.to(self.device)
         if self.studio_G is not None:
             self.studio_G.to(self.device)
-        if self.studio_D is not None:
-            self.studio_D.to(self.device)
+        if self.rand_D is not None:
+            self.rand_D .to(self.device)
 
     def fit(self,
             gpu_id,
@@ -67,7 +68,7 @@ class Solver:
         self.to(gpu_id)
         log_result = {}
         optimG = create_optimizer(chain(self.rand_G.parameters(), self.studio_G.parameters()), optim_name)
-        optimD = create_optimizer(self.studio_D.parameters(), optim_name)
+        optimD = create_optimizer(self.rand_D.parameters(), optim_name)
         schedulerG = torch.optim.lr_scheduler.MultiStepLR(
             optimG, [1000*int(d) for d in decay.split('-')],
             gamma=gamma,
@@ -78,8 +79,8 @@ class Solver:
             gamma=gamma,
         )
         visualizer.log_print("# params of rand_G: {}".format(sum(map(lambda x: x.numel(), self.rand_G.parameters()))))
+        visualizer.log_print("# params of rand_D: {}".format(sum(map(lambda x: x.numel(), self.rand_D.parameters()))))
         visualizer.log_print("# params of studio_G: {}".format(sum(map(lambda x: x.numel(), self.studio_G.parameters()))))
-        visualizer.log_print("# params of studio_D: {}".format(sum(map(lambda x: x.numel(), self.studio_D.parameters()))))
 
         start = 0
 
@@ -103,42 +104,31 @@ class Solver:
             except (UnboundLocalError, StopIteration):
                 iters = iter(train_dataloader)
                 inputs = next(iters)
-            rand = inputs['lc'].to(self.device)
+            rand_lc = inputs['rand_lc'].to(self.device)
             studio = inputs['base'].to(self.device)
-            lc_k = inputs['lc_k'].to(self.device)
-            b_size, n_lc, n_ch, h, w = lc_k.shape
-            lc_k = lc_k.view(b_size * n_lc, n_ch, h, w)
-            ctn_k = inputs['ctn_k'].to(self.device)
-            _, n_shape, _, _, _ = ctn_k.shape
-            ctn_k = ctn_k.view(b_size * n_shape, n_ch, h, w)
+            rand_shape = inputs['rand_shape'].to(self.device)
 
-            fake_studio_fwd, z_vec_fwd, l_vec_fwd = self.studio_G(rand)
-            _, z_vec_ctn_fwd, l_vec_ctn_fwd = self.studio_G(lc_k)
-            z_vec_ctn_fwd, l_vec_ctn_fwd = z_vec_ctn_fwd.view(b_size, n_lc, -1), l_vec_ctn_fwd.view(b_size, n_lc, -1)
-            _, z_vec_lc_fwd, l_vec_lc_fwd = self.studio_G(ctn_k)
-            z_vec_lc_fwd, l_vec_lc_fwd = z_vec_lc_fwd.view(b_size, n_shape, -1), l_vec_lc_fwd.view(b_size, n_shape, -1)
-            loss_collector.compute_contrastive_losses(z_vec_fwd, l_vec_fwd, z_vec_ctn_fwd.detach(), l_vec_ctn_fwd.detach(), 'ctn')
-            loss_collector.compute_contrastive_losses(l_vec_fwd, z_vec_fwd, l_vec_lc_fwd.detach(), z_vec_lc_fwd.detach(), 'lc')
+            fake_studio_fwd, lc_vec_fwd = self.studio_G(rand_lc)
+            _, lc_vec_fwd_hat = self.studio_G(rand_shape)
+            fake_rand_lc_fwd = self.rand_G(studio, lc_vec_fwd_hat)
 
-            fake_rand_fwd, z_vec_hat_fwd = self.rand_G(fake_studio_fwd, l_vec_fwd)
+            lc_vec_bwd = torch.rand_like(lc_vec_fwd, requires_grad=False)
+            fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
+            fake_studio_bwd, fake_lc_vec_bwd = self.studio_G(fake_rand_lc_bwd)
 
-            l_vec_bwd = torch.rand_like(l_vec_fwd, requires_grad=False)
-            fake_rand_bwd, z_vec_bwd = self.rand_G(studio, l_vec_bwd)
-            fake_studio_bwd, z_vec_hat_bwd, l_vec_hat_bwd = self.studio_G(fake_rand_bwd)
+            loss_collector.compute_GAN_losses(self.rand_D, fake_rand_lc_bwd, rand_lc, for_discriminator=False, cls='rand')
+            loss_collector.compute_feat_losses(self.rand_D, fake_rand_lc_bwd, rand_lc, cls='rand')
+            loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
+            loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
+            loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand')
+            loss_collector.compute_L1_losses(lc_vec_fwd, lc_vec_fwd_hat, 'fake_vec')
+            loss_collector.compute_L1_losses(lc_vec_bwd, fake_lc_vec_bwd, 'gt_vec')
 
-            loss_collector.compute_GAN_losses(self.studio_D, fake_studio_bwd, studio, for_discriminator=False)
-            loss_collector.compute_feat_losses(self.studio_D, fake_studio_bwd, studio)
-            loss_collector.compute_L1_losses(fake_rand_fwd, rand)
-            loss_collector.compute_vec_losses(l_vec_bwd, l_vec_hat_bwd)
-            loss_collector.compute_mutual_losses((z_vec_fwd, z_vec_hat_fwd, z_vec_bwd, z_vec_hat_bwd))
 
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
 
-            # if gclip > 0:
-            #     torch.nn.utils.clip_grad_value_(self.rand_G.parameters(), gclip)
-            #     torch.nn.utils.clip_grad_value_(self.studio_G.parameters(), gclip)
 
-            loss_collector.compute_GAN_losses(self.studio_D, fake_studio_bwd.detach(), studio, for_discriminator=True)
+            loss_collector.compute_GAN_losses(self.rand_D, fake_rand_lc_bwd.detach(), rand_lc, for_discriminator=True)
             loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
 
             loss_dict = {**loss_collector.loss_names_G, **loss_collector.loss_names_D}
@@ -251,12 +241,12 @@ class Solver:
             os.makedirs(studio_img_dir, exist_ok=True)
             os.makedirs(rand_img_dir, exist_ok=True)
         for i, inputs in enumerate(tqdm_data_loader):
-            rand_img = inputs['lc'].to(self.device)
+            rand_img = inputs['rand_lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
 
-            fake_studio_img, _, l_vec_fwd = self.studio_G(rand_img)
+            fake_studio_img, light_vec_forward = self.studio_G(rand_img)
 
-            fake_rand_img, _ = self.rand_G(studio_img, l_vec_fwd)
+            fake_rand_img = self.rand_G(studio_img, light_vec_forward)
             crop_size = 10
             fake_studio = tensor2im(fake_studio_img)
             fake_rand = tensor2im(fake_rand_img)
@@ -311,8 +301,8 @@ class Solver:
             module.to(self.device)
         state_dict = dict()
         update_state_dict('rand_G', self.rand_G)
+        update_state_dict('rand_D', self.rand_D)
         update_state_dict('studio_G', self.studio_G)
-        update_state_dict('studio_D', self.studio_D)
         state_path = os.path.join(save_dir, 'state_{}.pth'.format(label))
         torch.save(state_dict, state_path)
 
@@ -356,7 +346,7 @@ class Solver:
             load_network(self.studio_G, state['studio_G'], 'studio_G')
             self.studio_G.to(self.device)
 
-        if self.studio_D is not None:
-            load_network(self.studio_D, state['studio_D'], 'studio_D')
-            self.studio_D.to(self.device)
+        if self.rand_D is not None:
+            load_network(self.rand_D, state['rand_D'], 'rand_D')
+            self.rand_D.to(self.device)
 
