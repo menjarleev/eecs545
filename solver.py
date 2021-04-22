@@ -120,7 +120,7 @@ class Solver:
             loss_collector.compute_feat_losses(self.rand_D, fake_rand_lc_bwd, rand_lc, cls='rand')
             loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
             loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
-            loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand')
+            loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
             loss_collector.compute_L1_losses(lc_vec_fwd, lc_vec_fwd_hat, 'fake_vec')
             loss_collector.compute_L1_losses(lc_vec_bwd, fake_lc_vec_bwd, 'gt_vec')
 
