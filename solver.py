@@ -116,8 +116,9 @@ class Solver:
             fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_studio_bwd, fake_lc_vec_bwd = self.studio_G(fake_rand_lc_bwd)
 
-            loss_collector.compute_GAN_losses(self.rand_D, fake_rand_lc_bwd, rand_lc, for_discriminator=False, cls='rand')
+            loss_collector.compute_GAN_losses(self.rand_D, torch.cat([fake_rand_lc_bwd, studio], dim=1), torch.cat([rand_lc, studio], dim=1), for_discriminator=False, cls='rand')
             loss_collector.compute_feat_losses(self.rand_D, fake_rand_lc_bwd, rand_lc, cls='rand')
+            loss_collector.compute_VGG_losses(fake_rand_lc_bwd.expand(-1, 3, -1, -1), rand_lc.expand(-1, 3, -1, -1))
             loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
             loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
             loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
@@ -128,7 +129,7 @@ class Solver:
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
 
 
-            loss_collector.compute_GAN_losses(self.rand_D, fake_rand_lc_bwd.detach(), rand_lc, for_discriminator=True)
+            loss_collector.compute_GAN_losses(self.rand_D, torch.cat([fake_rand_lc_bwd, studio], dim=1).detach(), torch.cat([rand_lc, studio], dim=1), for_discriminator=True, cls='rand')
             loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
 
             loss_dict = {**loss_collector.loss_names_G, **loss_collector.loss_names_D}

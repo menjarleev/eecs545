@@ -8,12 +8,12 @@ class LossCollector:
         self.loss_names_G = dict()
         self.loss_names_D = dict()
         self.weight = {}
-        if 'GAN' in loss_terms:
+        if 'gan' in loss_terms:
             self.criterionGAN = GANLoss(gan_mode, tensor=self.tensor)
         if 'feat' in loss_terms:
             self.criterionFeat = torch.nn.L1Loss()
             self.weight['feat'] = lambda_feat
-        if 'L1' in loss_terms:
+        if 'l1' in loss_terms:
             self.criterionL1 = torch.nn.L1Loss()
             self.weight['L1'] = lambda_L1
         if 'vgg' in loss_terms:

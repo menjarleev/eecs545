@@ -42,32 +42,24 @@ def main():
 
     rand_G = RandomLightGenerator(input_dim=opt.input_dim,
                                   output_dim=opt.output_dim,
-                                  z_dim=opt.z_dim,
-                                  bottleneck_z=opt.bottleneck_z,
                                   num_downsample=opt.num_downsample,
                                   num_resblock=opt.num_resblock,
                                   ngf=opt.ngf,
                                   padding_mode=opt.padding_mode_G,
-                                  num_conv_z=opt.num_conv_z,
-                                  num_linear_z=opt.num_linear_z,
                                   latent_size=opt.latent_size,
                                   max_channel=opt.max_channel)
     studio_G = StudioLightGenerator(input_dim=opt.input_dim,
                                     output_dim=opt.output_dim,
-                                    z_dim=opt.z_dim,
-                                    bottleneck_z=opt.bottleneck_z,
                                     num_downsample=opt.num_downsample,
                                     num_resblock=opt.num_resblock,
                                     ngf=opt.ngf,
                                     padding_mode=opt.padding_mode_G,
-                                    num_conv_z=opt.num_conv_z,
-                                    num_linear_z=opt.num_linear_z,
                                     latent_size=opt.latent_size,
                                     max_channel=opt.max_channel)
     rand_D = None
     train_dataloader, val_dataloader = None, None
     if opt.train:
-        rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim,
+        rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2,
                                          num_D=opt.num_D,
                                          n_layer=opt.n_layer_D,
                                          ndf=opt.ndf,

@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument('--ndf', type=int, default=64)
     parser.add_argument('--n_layer_D', type=int, default=3)
     parser.add_argument('--num_D', type=int, default=2)
-    parser.add_argument('--gan_mode', type=str, default='ls', help='[ls|origin|hinge]')
+    parser.add_argument('--gan_mode', type=str, default='hinge', help='[ls|origin|hinge]')
     parser.add_argument('--norm_D', type=str, default='instance')
     parser.add_argument('--use_vgg', action='store_true')
     parser.add_argument('--dropout', action='store_true')
@@ -48,7 +48,7 @@ def parse_args():
     parser.add_argument('--ckpt_root', type=str, default='./ckpt')
     parser.add_argument('--model_dir', type=str, default=None)
     parser.add_argument('--lambda_feat', type=float, default=10.0)
-    parser.add_argument('--lambda_L1', type=float, default=5.0)
+    parser.add_argument('--lambda_L1', type=float, default=3.0)
     parser.add_argument('--lambda_vgg', type=float, default=10.0)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--name', type=str, default='photometricGAN')
@@ -56,11 +56,11 @@ def parse_args():
     parser.add_argument('--print_mem', type=bool, default=True)
     parser.add_argument('--step_label', type=str, default='latest')
     parser.add_argument('--continue_train', action='store_true')
-    parser.add_argument('--loss_terms', type=str, default='L1|GAN|feat|vec|mask')
+    parser.add_argument('--loss_terms', type=str, default=['L1', 'GAN', 'vgg'], nargs='+')
     parser.add_argument('--gpu_id', type=int, default=0)
 
     # test
-
+    parser.add_argument('--phase')
     parser.add_argument('--train', action='store_true', dest='train')
     parser.add_argument('--validation', action='store_true', dest='validation')
     parser.add_argument('--validation_interval', type=int, default=1000)
@@ -80,7 +80,7 @@ def parse_args():
     parser.add_argument('--inference', action='store_true', dest='inference')
     parser.add_argument('--num_lighting_infer', type=int, default=9)
     parser.add_argument('--label_infer', type=str, default='best', choices=['best', 'latest'])
-    parser.add_argument('--latent_size', type=int, nargs='+', default=(8, 8))
+    parser.add_argument('--latent_size', type=int, nargs='+', default=(16, 8, 8))
 
     # agumentation
     parser.add_argument('--patch_size', type=int, default=96)
@@ -102,5 +102,6 @@ def get_option():
     else:
         os.makedirs(save_dir, exist_ok=False)
     setattr(opt, 'save_dir', save_dir)
+    opt.loss_terms = [loss.lower() for loss in opt.loss_terms]
     return opt
 
