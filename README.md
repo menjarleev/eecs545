@@ -19,5 +19,5 @@ main.py --test --test_step 50 --dataset_root YOUR_DATASET_ROOT --num_resblock 12
 ```
 Args can be found in ```option/option.py```
 
-## requirements
-* TODO add requirements files
+## configuration
+* TODO add configuration files
