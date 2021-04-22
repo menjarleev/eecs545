@@ -24,7 +24,6 @@ def parse_args():
     parser.add_argument('--dropout', action='store_true')
     parser.add_argument('--input_dim', type=int, default=1)
     parser.add_argument('--output_dim', type=int, default=1)
-    parser.add_argument('--noise_nc', type=int, default=256)
     parser.add_argument('--max_channel', type=int, default=256)
 
 
@@ -60,7 +59,6 @@ def parse_args():
     parser.add_argument('--gpu_id', type=int, default=0)
 
     # test
-    parser.add_argument('--phase')
     parser.add_argument('--train', action='store_true', dest='train')
     parser.add_argument('--validation', action='store_true', dest='validation')
     parser.add_argument('--validation_interval', type=int, default=1000)

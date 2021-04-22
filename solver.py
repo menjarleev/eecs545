@@ -204,7 +204,7 @@ class Solver:
         self.save(save_dir, 'latest')
 
     @torch.no_grad()
-    def inference(self, gpu_id, dataloader, save_dir, noise_nc, input_size, batch_size, num_lighting_infer, label, visualizer):
+    def inference(self, gpu_id, dataloader, save_dir, latent_size, num_lighting_infer, label, visualizer):
         self.to(gpu_id)
         self.load(save_dir, label, visualizer)
         self.rand_G.eval()
@@ -214,8 +214,8 @@ class Solver:
         for i, inputs in enumerate(tqdm_data_loader):
             for j in range(num_lighting_infer):
                 studio_img = inputs['base'].to(self.device)
-                light_vec = torch.randn((batch_size, noise_nc, *input_size)).to(self.device)
-                fake_rand_img, _ = self.rand_G(studio_img, light_vec)
+                light_vec = torch.randn((studio_img.shape[0], *latent_size)).to(self.device)
+                fake_rand_img = self.rand_G(studio_img, light_vec)
                 fake_rand_img = tensor2im(fake_rand_img)
                 for k in range(studio_img.shape[0]):
                     fake_k_lighting_j = fake_rand_img[k, :, :]

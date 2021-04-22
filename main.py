@@ -128,19 +128,13 @@ def main():
     if opt.inference:
         # create dataloader
         # substitute train with infer dataset you like
-        base_val = os.path.join(opt.dataset_root, 'val_base_img_arr.npy')
-        lighting_val = os.path.join(opt.dataset_root, 'val_lighting_arr.npy')
-        bottles_val = Bottle128Dataset(base_img_file=base_val,
-                                       lighting_img_file=lighting_val,
-                                       num_lighting=opt.num_lighting,
-                                       transform=transforms.Compose([ToTensor()]))
+        bottles_val = Bottle128Dataset(dataset_root=opt.dataset_root,
+                                       phase='valid')
         val_dataloader = DataLoader(bottles_val, batch_size=opt.batch_size_eval, shuffle=False)
         solver.inference(gpu_id=opt.gpu_id,
                          dataloader=val_dataloader,
                          save_dir=opt.save_dir,
-                         noise_nc=opt.noise_nc,
-                         input_size=opt.input_size,
-                         batch_size=opt.batch_size_eval,
+                         latent_size=opt.latent_size,
                          num_lighting_infer=opt.num_lighting_infer,
                          label=opt.label_infer,
                          visualizer=visualizer)
