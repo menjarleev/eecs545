@@ -116,8 +116,9 @@ class Solver:
             fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_studio_bwd, fake_lc_vec_bwd = self.studio_G(fake_rand_lc_bwd)
 
-            loss_collector.compute_GAN_losses(self.rand_D, fake_rand_lc_bwd, rand_lc, for_discriminator=False, cls='rand')
+            loss_collector.compute_GAN_losses(self.rand_D, torch.cat([fake_rand_lc_bwd, studio], dim=1), torch.cat([rand_lc, studio], dim=1), for_discriminator=False, cls='rand')
             loss_collector.compute_feat_losses(self.rand_D, fake_rand_lc_bwd, rand_lc, cls='rand')
+            loss_collector.compute_VGG_losses(fake_rand_lc_bwd.expand(-1, 3, -1, -1), rand_lc.expand(-1, 3, -1, -1))
             loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
             loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
             loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
@@ -128,7 +129,7 @@ class Solver:
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
 
 
-            loss_collector.compute_GAN_losses(self.rand_D, fake_rand_lc_bwd.detach(), rand_lc, for_discriminator=True)
+            loss_collector.compute_GAN_losses(self.rand_D, torch.cat([fake_rand_lc_bwd, studio], dim=1).detach(), torch.cat([rand_lc, studio], dim=1), for_discriminator=True, cls='rand')
             loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
 
             loss_dict = {**loss_collector.loss_names_G, **loss_collector.loss_names_D}
@@ -203,7 +204,7 @@ class Solver:
         self.save(save_dir, 'latest')
 
     @torch.no_grad()
-    def inference(self, gpu_id, dataloader, save_dir, noise_nc, input_size, batch_size, num_lighting_infer, label, visualizer):
+    def inference(self, gpu_id, dataloader, save_dir, latent_size, num_lighting_infer, label, visualizer):
         self.to(gpu_id)
         self.load(save_dir, label, visualizer)
         self.rand_G.eval()
@@ -213,8 +214,8 @@ class Solver:
         for i, inputs in enumerate(tqdm_data_loader):
             for j in range(num_lighting_infer):
                 studio_img = inputs['base'].to(self.device)
-                light_vec = torch.randn((batch_size, noise_nc, *input_size)).to(self.device)
-                fake_rand_img, _ = self.rand_G(studio_img, light_vec)
+                light_vec = torch.randn((studio_img.shape[0], *latent_size)).to(self.device)
+                fake_rand_img = self.rand_G(studio_img, light_vec)
                 fake_rand_img = tensor2im(fake_rand_img)
                 for k in range(studio_img.shape[0]):
                     fake_k_lighting_j = fake_rand_img[k, :, :]
