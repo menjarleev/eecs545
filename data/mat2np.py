@@ -43,11 +43,13 @@ def mat2im(dataset_root, phase, dir_name):
     dirs = os.listdir(os.path.join(dataset_root, dir_name))
 
     os.makedirs(os.path.join(dataset_root, phase), exist_ok=True)
+    dir_count = 1
     for d in dirs:
-        new_dir = os.path.join(dataset_root, phase, d)
+        d_base = d.split('_')[0]
+        new_dir = os.path.join(dataset_root, phase, f'{d_base}_{dir_count:>04}')
         os.makedirs(new_dir, exist_ok=True)
-        input = glob.glob(f'{dataset_root}/{dir_name}/{d}/input.mat')
-        lc = glob.glob(f'{dataset_root}/{dir_name}/{d}/output_*.mat')
+        input = sorted(glob.glob(f'{dataset_root}/{dir_name}/{d}/input.mat'))
+        lc = sorted(glob.glob(f'{dataset_root}/{dir_name}/{d}/output_*.mat'))
         for i in input:
             img = scipy.io.loadmat(i)['input'][0, :, :]
             img = np.clip(img, 0, 255)
@@ -59,15 +61,15 @@ def mat2im(dataset_root, phase, dir_name):
             img = scipy.io.loadmat(i)['output'][0, :, :]
             img = np.clip(img, 0, 255)
             img = img.astype(np.uint8)
-            new_file = os.path.join(new_dir, f'lc_{count}.jpg')
+            new_file = os.path.join(new_dir, f'lc_{count:>04}.jpg')
             imsave(new_file, img)
             count += 1
-
+        dir_count += 1
 
 if __name__ == '__main__':
     phase = 'train'
     dataset_root = '/home/ubuntu/data/BottleData'
-    dir_name = 'Train_Data_128'
+    dir_name = 'Training_Data_128'
     mat2im(dataset_root, phase, dir_name)
     phase = 'valid'
     dataset_root = '/home/ubuntu/data/BottleData'

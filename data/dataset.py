@@ -3,6 +3,7 @@ import numpy as np
 from torch.utils.data import Dataset
 from utils.tensor_ops import normalize, im2tensor
 import skimage.io as io
+import os
 import glob
 
 class ToTensor(object):
@@ -16,8 +17,8 @@ class ToTensor(object):
 
 class Bottle128Dataset(Dataset):
     def __init__(self, dataset_root, phase='train', transform=None):
-        self.base_paths = glob.glob(f'{dataset_root}/{phase}/*/base.jpg')
-        self.lc_paths = glob.glob(f'{dataset_root}/{phase}/*/lc_*.jpg')
+        self.base_paths = sorted(glob.glob(f'{dataset_root}/{phase}/*/base.jpg'))
+        self.lc_paths = sorted(glob.glob(f'{dataset_root}/{phase}/*/lc_*.jpg'))
         self.num_sample = len(glob.glob(f'{dataset_root}/{phase}/*'))
         assert len(self.lc_paths) % self.num_sample == 0, 'every folder should contains same amount of lighting conditions'
         self.num_lc = len(self.lc_paths) // self.num_sample

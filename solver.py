@@ -110,7 +110,7 @@ class Solver:
 
             fake_studio_fwd, lc_vec_fwd = self.studio_G(rand_lc)
             _, lc_vec_fwd_hat = self.studio_G(rand_shape)
-            fake_rand_lc_fwd = self.rand_G(studio, lc_vec_fwd_hat)
+            fake_rand_lc_fwd = self.rand_G(studio, (lc_vec_fwd_hat + lc_vec_fwd) / 2)
 
             lc_vec_bwd = torch.rand_like(lc_vec_fwd, requires_grad=False)
             fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
