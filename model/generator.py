@@ -115,7 +115,7 @@ class StudioLightGenerator(nn.Module):
         self.actv_z = nn.Sequential(
             nn.Conv2d(res_channel, lc_dim[0], 3, 1, 1, padding_mode=padding_mode),
             norm_layer(lc_dim[0]),
-            actv())
+            nn.Tanh())
 
         self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode,  norm_layer, actv)
 
