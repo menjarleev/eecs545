@@ -6,7 +6,7 @@ from torchvision import transforms
 from solver import Solver
 from data import Bottle128Dataset, ToTensor
 from torch.utils.data import DataLoader
-from model import StudioLightGenerator, RandomLightGenerator, MultiScaleDiscriminator
+from model import StudioLightGenerator, RandomLightGenerator, MultiScaleDiscriminator, LightConditionGenerator, SingleScaleDiscriminator
 import os
 from utils import LossCollector, Visualizer
 from utils.transform import *
@@ -21,6 +21,7 @@ def set_seed(seed):
         torch.cuda.manual_seed(seed)
     else:
         torch.cuda.manual_seed_all(seed)
+
 
 def main():
     opt = get_option()
@@ -39,7 +40,6 @@ def main():
         with open(file, 'w') as json_file:
             json.dump(args, json_file)
 
-
     rand_G = RandomLightGenerator(input_dim=opt.input_dim,
                                   output_dim=opt.output_dim,
                                   num_downsample=opt.num_downsample,
@@ -56,7 +56,11 @@ def main():
                                     padding_mode=opt.padding_mode_G,
                                     latent_size=opt.latent_size,
                                     max_channel=opt.max_channel)
-    rand_D = None
+    lc_G = LightConditionGenerator(noise_dim=opt.noise_dim,
+                                   latent_size=opt.latent_size,
+                                   bottleneck_dim=opt.bottleneck_dim,
+                                   n_bottleneck=opt.n_bottleneck)
+    rand_D, lc_D = None, None
     train_dataloader, val_dataloader = None, None
     if opt.train:
         rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2,
@@ -64,6 +68,12 @@ def main():
                                          n_layer=opt.n_layer_D,
                                          ndf=opt.ndf,
                                          padding_mode=opt.padding_mode_D)
+        lc_D = SingleScaleDiscriminator(input_nc=opt.latent_size[0],
+                                        n_layer=opt.n_layer_D,
+                                        ndf=opt.ndf,
+                                        stride=3,
+                                        padding=1,
+                                        padding_mode=opt.padding_mode_D)
         t = [partial(crop, psize=opt.patch_size),
              flip,
              rotate,
@@ -79,9 +89,8 @@ def main():
                                            phase='valid')
             val_dataloader = DataLoader(bottles_val, batch_size=opt.batch_size_eval, shuffle=False)
 
-    solver = Solver(rand_G, rand_D, studio_G, gpu_id=opt.gpu_id)
+    solver = Solver(rand_G, lc_G, studio_G, rand_D, lc_D, gpu_id=opt.gpu_id)
     if opt.train:
-
         # for debug
         # from pyinstrument import Profiler
         # profiler = Profiler()
@@ -92,10 +101,13 @@ def main():
                                        lambda_L1=opt.lambda_L1,
                                        lambda_feat=opt.lambda_feat,
                                        lambda_vgg=opt.lambda_vgg)
-        solver.fit(gpu_id=opt.gpu_id,
+        solver.fit(noise_dim=opt.noise_dim,
+                   gpu_id=opt.gpu_id,
                    lr=opt.lr,
                    save_dir=opt.save_dir,
                    max_step=opt.max_step,
+                   finetune=opt.finetune,
+                   finetune_step=opt.finetune_step,
                    gamma=opt.gamma,
                    decay=opt.decay,
                    loss_collector=loss_collector,
@@ -117,7 +129,8 @@ def main():
         bottles_test = Bottle128Dataset(dataset_root=opt.dataset_root,
                                         phase='test')
         test_dataloader = DataLoader(bottles_test, batch_size=opt.batch_size_eval, shuffle=False)
-        solver.test(gpu_id=opt.gpu_id,
+        solver.test(noise_dim=opt.noise_dim,
+                    gpu_id=opt.gpu_id,
                     save_dir=opt.save_dir,
                     visualizer=visualizer,
                     test_dataloader=test_dataloader,
@@ -134,7 +147,7 @@ def main():
         solver.inference(gpu_id=opt.gpu_id,
                          dataloader=val_dataloader,
                          save_dir=opt.save_dir,
-                         latent_size=opt.latent_size,
+                         noise_dim=opt.noise_dim,
                          num_lighting_infer=opt.num_lighting_infer,
                          label=opt.label_infer,
                          visualizer=visualizer)
@@ -142,4 +155,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

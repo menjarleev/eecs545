@@ -21,7 +21,7 @@ class LossCollector:
             self.weight['VGG'] = lambda_vgg
 
 
-    def compute_GAN_losses(self, netD, fake, gt, for_discriminator, cls='rand'):
+    def compute_GAN_losses(self, netD, fake, gt, for_discriminator, cls):
         pred_fake = netD(fake)
         pred_real = netD(gt)
         if for_discriminator:
@@ -33,20 +33,20 @@ class LossCollector:
             loss_G_GAN = self.criterionGAN(pred_fake, True)
             self.loss_names_G[f'{cls}_G_GAN'] = loss_G_GAN
 
-    def compute_feat_losses(self, netD, fake, gt, cls='rand'):
+    def compute_feat_losses(self, netD, fake, gt, smoother: float = 1.):
         if not 'feat' in self.weight.keys():
             return
         pred_fake = netD(fake)
         pred_real = netD(gt)
         loss_G_GAN_Feat = self.GAN_matching_loss(pred_real, pred_fake)
-        self.loss_names_G[f'{cls}_G_GAN_Feat'] = loss_G_GAN_Feat
+        self.loss_names_G[f'G_GAN_Feat'] = loss_G_GAN_Feat * smoother
 
 
-    def compute_L1_losses(self, fake, gt, cls='vec'):
+    def compute_L1_losses(self, fake, gt, cls='vec', smoother: float = 1.):
         if not 'L1' in self.weight.keys():
             return
         loss_L1 = self.criterionL1(fake, gt)
-        self.loss_names_G[f'{cls}_L1'] = loss_L1 * self.weight['L1']
+        self.loss_names_G[f'{cls}_L1'] = loss_L1 * self.weight['L1'] * smoother
 
 
     def compute_VGG_losses(self, fake_image, gt_image):

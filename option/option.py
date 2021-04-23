@@ -8,23 +8,23 @@ def parse_args():
     # models
     parser.add_argument('--netG', type=str, default='Cycle')
     parser.add_argument('--netD', type=str, default='Multiscale')
-    parser.add_argument('--actv_G', type=str, default='ReLU')
+    parser.add_argument('--actv_G', type=str, default='LeakyReLU')
     parser.add_argument('--num_downsample', type=int, default=3)
     parser.add_argument('--num_resblock', type=int, default=8)
     parser.add_argument('--padding_mode_G', type=str, default='reflect')
     parser.add_argument('--actv_D', type=str, default='LeakyReLU')
     parser.add_argument('--padding_mode_D', type=str, default='zeros')
     parser.add_argument('--ngf', type=int, default=32)
-    parser.add_argument('--ndf', type=int, default=64)
+    parser.add_argument('--ndf', type=int, default=32)
     parser.add_argument('--n_layer_D', type=int, default=3)
     parser.add_argument('--num_D', type=int, default=2)
-    parser.add_argument('--gan_mode', type=str, default='hinge', help='[ls|origin|hinge]')
+    parser.add_argument('--gan_mode', type=str, default='ls', help='[ls|origin|hinge]')
     parser.add_argument('--norm_D', type=str, default='instance')
     parser.add_argument('--use_vgg', action='store_true')
     parser.add_argument('--dropout', action='store_true')
     parser.add_argument('--input_dim', type=int, default=1)
     parser.add_argument('--output_dim', type=int, default=1)
-    parser.add_argument('--max_channel', type=int, default=256)
+    parser.add_argument('--max_channel', type=int, default=512)
 
 
     # dataset
@@ -55,7 +55,7 @@ def parse_args():
     parser.add_argument('--print_mem', type=bool, default=True)
     parser.add_argument('--step_label', type=str, default='latest')
     parser.add_argument('--continue_train', action='store_true')
-    parser.add_argument('--loss_terms', type=str, default=['L1', 'GAN', 'vgg'], nargs='+')
+    parser.add_argument('--loss_terms', type=str, default=['L1', 'GAN', 'feat'], nargs='+')
     parser.add_argument('--gpu_id', type=int, default=0)
 
     # test
@@ -78,13 +78,18 @@ def parse_args():
     parser.add_argument('--inference', action='store_true', dest='inference')
     parser.add_argument('--num_lighting_infer', type=int, default=9)
     parser.add_argument('--label_infer', type=str, default='best', choices=['best', 'latest'])
-    parser.add_argument('--latent_size', type=int, nargs='+', default=(16, 8, 8))
+    parser.add_argument('--latent_size', type=int, nargs='+', default=(16, 16, 16))
+    parser.add_argument('--noise_dim', type=int, default=32)
+    parser.add_argument('--n_bottleneck', type=int, default=8)
+    parser.add_argument('--bottleneck_dim', type=int, default=256)
+
 
     # agumentation
     parser.add_argument('--patch_size', type=int, default=96)
     parser.add_argument('--shift_range', type=int, nargs='+', default=(-20, 20))
 
-
+    parser.add_argument('--finetune_step', type=int, default=0)
+    parser.add_argument('--finetune', action='store_true', dest='finetune')
     return parser.parse_args()
 
 

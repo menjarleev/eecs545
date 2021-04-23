@@ -1,4 +1,6 @@
 import torch.nn as nn
+import torch
+import torch.nn.functional as F
 from functools import partial
 
 class SingleScaleDiscriminator(nn.Module):
@@ -8,13 +10,15 @@ class SingleScaleDiscriminator(nn.Module):
                  n_layer,
                  padding_mode,
                  actv=nn.LeakyReLU,
+                 stride=2,
+                 padding=0,
                  norm=partial(nn.InstanceNorm2d, affine=True),
                  ):
         super(SingleScaleDiscriminator, self).__init__()
         actv = actv
         norm = norm
         self.n_layer = n_layer
-        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=3, stride=2, padding_mode=padding_mode),
+        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=3, stride=stride, padding=padding, padding_mode=padding_mode),
                      norm(ndf),
                      actv()]]
         nf = ndf
@@ -22,18 +26,18 @@ class SingleScaleDiscriminator(nn.Module):
             nf_prev = nf
             nf = min(nf * 2, 512)
             sequence += [[
-                nn.Conv2d(nf_prev, nf, kernel_size=3, stride=2, padding_mode=padding_mode),
+                nn.Conv2d(nf_prev, nf, kernel_size=3, stride=stride, padding=padding, padding_mode=padding_mode),
                 norm(nf),
                 actv()
             ]]
         nf_prev = nf
         nf = min(nf * 2, 512)
         sequence += [[
-            nn.Conv2d(nf_prev, nf, kernel_size=3, stride=1, padding_mode=padding_mode),
+            nn.Conv2d(nf_prev, nf, kernel_size=3, stride=1, padding=padding, padding_mode=padding_mode),
             norm(nf),
             actv()
         ]]
-        sequence += [[nn.Conv2d(nf, 1, kernel_size=3, stride=1, padding_mode=padding_mode)]]
+        sequence += [[nn.Conv2d(nf, 1, kernel_size=3, stride=1, padding=padding, padding_mode=padding_mode)]]
 
         for n in range(len(sequence)):
             setattr(self, 'model' + str(n), nn.Sequential(*sequence[n]))

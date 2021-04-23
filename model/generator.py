@@ -2,7 +2,6 @@ from .module import *
 import torch as t
 from torch import nn
 from functools import partial
-from .module import InverseAdaptiveInstanceNorm
 
 
 class RandomLightGenerator(nn.Module):
@@ -15,7 +14,7 @@ class RandomLightGenerator(nn.Module):
                  latent_size=(16, 8, 8),
                  padding_mode='reflect',
                  max_channel=256,
-                 actv=nn.ReLU,
+                 actv=nn.LeakyReLU,
                  norm_layer=partial(nn.InstanceNorm2d, affine=True)):
         super(RandomLightGenerator, self).__init__()
         self.num_downsample = num_downsample
@@ -92,7 +91,7 @@ class StudioLightGenerator(nn.Module):
                  latent_size=(16, 8, 8),
                  padding_mode='reflect',
                  max_channel=256,
-                 actv=nn.ReLU,
+                 actv=nn.LeakyReLU,
                  norm_layer=partial(nn.InstanceNorm2d, affine=True)):
         super(StudioLightGenerator, self).__init__()
         self.num_downsample = num_downsample
@@ -115,7 +114,7 @@ class StudioLightGenerator(nn.Module):
         self.actv_z = nn.Sequential(
             nn.Conv2d(res_channel, latent_size[0], 3, 1, 1, padding_mode=padding_mode),
             norm_layer(latent_size[0]),
-            nn.Tanh())
+            actv())
 
         self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode,  norm_layer, actv)
 
@@ -159,3 +158,31 @@ class StudioLightGenerator(nn.Module):
         x = self.decode(res)
         x = self.to_rgb(x)
         return x, z
+
+class LightConditionGenerator(nn.Module):
+    def __init__(self, noise_dim, latent_size, bottleneck_dim, n_bottleneck, n_block=5, actv=nn.LeakyReLU):
+        super(LightConditionGenerator, self).__init__()
+        self.generator = Generator(n_block, 256, latent_size[0], latent_size[1:], bottleneck_dim)
+        self.latent_size = latent_size
+        self.n_block = n_block
+        layer = [nn.Linear(noise_dim, bottleneck_dim),
+                 actv()]
+        for i in range(n_bottleneck):
+            layer += [nn.Linear(bottleneck_dim, bottleneck_dim),
+                      actv()]
+        self.layer = nn.Sequential(*layer)
+        self.latent_size = latent_size
+
+    def forward(self, input, noise=None):
+        b_size = input.shape[0]
+        style = self.layer(input)
+        if noise is None:
+            noise = []
+            for i in range(self.n_block):
+                noise += [th.randn(b_size, 1, *self.latent_size[1:], device=input.device)]
+        out = self.generator(style, noise)
+
+        return out
+
+class LightConditionVAE(nn.Module):
+    def __init__(self):

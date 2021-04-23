@@ -123,24 +123,6 @@ class AdaptiveInstanceNorm(nn.Module):
         out = gamma * out + beta
         return out
 
-class InverseAdaptiveInstanceNorm(nn.Module):
-    def __init__(self, in_channel, ratio=4):
-        super(InverseAdaptiveInstanceNorm, self).__init__()
-        self.norm = nn.InstanceNorm2d(in_channel, affine=False)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.fc1 = nn.Linear(in_channel * 2, in_channel * 2 // ratio)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(in_channel * 2 // ratio, in_channel * 2)
-
-    def forward(self, input):
-        x = self.norm(input)
-        style_x = th.cat([self.avg_pool(x), self.max_pool(x)], dim=-1).view(x.shape[0], -1)
-        affine_out = self.fc2(self.relu(self.fc1(style_x)))
-        gamma, beta = th.chunk(affine_out[:, :, None, None], 2, dim=1)
-        out = gamma * x + beta
-        return out, gamma, beta
-
 class SPADE(nn.Module):
     def __init__(self, norm_nc, label_nc, kernel_size=3, padding_mode='reflect'):
         super().__init__()
@@ -172,4 +154,84 @@ class SPADE(nn.Module):
         # apply scale and bias
         out = normalized * (1 + gamma) + beta
 
+        return out
+
+class NoiseInjection(nn.Module):
+    def __init__(self, channel):
+        super().__init__()
+
+        self.weight = nn.Parameter(th.zeros(1, channel, 1, 1))
+
+    def forward(self, image, noise):
+        return image + self.weight * noise
+
+class ConstantInput(nn.Module):
+    def __init__(self, channel, size=(8, 8)):
+        super().__init__()
+
+        self.input = nn.Parameter(th.randn(1, channel, *size))
+
+    def forward(self, input):
+        batch = input.shape[0]
+        out = self.input.repeat(batch, 1, 1, 1)
+        return out
+
+class StyledConvBlock(nn.Module):
+    def __init__(
+            self,
+            in_channel,
+            out_channel,
+            kernel_size=3,
+            padding=1,
+            style_dim=512,
+            latent_size=(8, 8),
+            initial=False,
+            padding_mode='reflect',
+    ):
+        super().__init__()
+
+        if initial:
+            self.conv1 = ConstantInput(in_channel, latent_size)
+        else:
+            self.conv1 = nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, padding_mode=padding_mode )
+
+        self.noise1 = NoiseInjection(out_channel)
+        self.adain1 = AdaptiveInstanceNorm(out_channel, style_dim)
+        self.lrelu1 = nn.LeakyReLU()
+
+        self.conv2 = nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, padding_mode=padding_mode )
+        self.noise2 = NoiseInjection(out_channel)
+        self.adain2 = AdaptiveInstanceNorm(out_channel, style_dim)
+        self.lrelu2 = nn.LeakyReLU()
+
+    def forward(self, input, style, noise):
+        out = self.conv1(input)
+        out = self.noise1(out, noise)
+        out = self.lrelu1(out)
+        out = self.adain1(out, style)
+
+        out = self.conv2(out)
+        out = self.noise2(out, noise)
+        out = self.lrelu2(out)
+        out = self.adain2(out, style)
+
+        return out
+
+
+class Generator(nn.Module):
+    def __init__(self, n_block, n_channel, out_channel, latent_size, style_dim, padding_mode='reflect'):
+        super().__init__()
+        block = [StyledConvBlock(n_channel, n_channel, 3, 1, style_dim=style_dim, latent_size=latent_size, initial=True)]
+        for i in range(n_block - 2):
+            block += [StyledConvBlock(n_channel, n_channel, 3, 1, style_dim=style_dim)]
+        self.conv = nn.Sequential(nn.Conv2d(n_channel, out_channel, 3, 1, 1, padding_mode=padding_mode),
+                                  nn.InstanceNorm2d(out_channel),
+                                  nn.LeakyReLU())
+        self.progression = nn.ModuleList(block)
+
+    def forward(self, style, noise):
+        out = noise[0]
+        for i, conv in enumerate(self.progression):
+            out = conv(out, style, noise[i])
+        out = self.conv(out)
         return out

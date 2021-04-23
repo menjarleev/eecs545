@@ -28,17 +28,19 @@ class Bottle128Dataset(Dataset):
     def __getitem__(self, index):
         base_idx = index // self.num_lc
         rand_shape_idx = np.random.randint(low=0, high=self.num_sample) * self.num_lc + index % self.num_lc
-        base_path, lc_path, rand_shape_path = self.base_paths[base_idx], self.lc_paths[index], self.lc_paths[rand_shape_idx]
-        base, lc, rand_shape = io.imread(base_path), io.imread(lc_path), io.imread(rand_shape_path)
-        imgs = [base, lc, rand_shape]
+        rand_idx = np.random.randint(low=0, high=self.num_sample)
+        base_path, lc_path, rand_shape_path, rand_path = self.base_paths[base_idx], self.lc_paths[index], self.lc_paths[rand_shape_idx], self.base_paths[rand_idx]
+        base, lc, rand_shape, rand = io.imread(base_path), io.imread(lc_path), io.imread(rand_shape_path), io.imread(rand_path)
+        imgs = [base, lc, rand_shape, rand]
         imgs = [img[:, :, None] for img in imgs]
         if self.phase == 'train' and self.transform is not None:
             imgs = self.transform(imgs)
         imgs = [normalize(im2tensor(img)) for img in imgs]
-        base, lc, rand_shape = imgs
+        base, lc, rand_shape, rand = imgs
         return {'base': base,
                 'rand_lc': lc,
-                'rand_shape': rand_shape}
+                'rand_shape': rand_shape,
+                'rand': rand}
 
     def __len__(self):
         return len(self.lc_paths)

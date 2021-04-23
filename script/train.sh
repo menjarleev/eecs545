@@ -1,0 +1,1 @@
+sudo /home/ubuntu/anaconda3/envs/dgl/bin/python main.py --train --validation --test --save_result --validation_interval 1000 --log_interval 100 --max_step 20000 --dataset_root /home/ubuntu/data/BottleImg --num_resblock 12
