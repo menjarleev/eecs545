@@ -6,7 +6,8 @@ from torchvision import transforms
 from solver import Solver
 from data import Bottle128Dataset, ToTensor
 from torch.utils.data import DataLoader
-from model import StudioLightGenerator, RandomLightGenerator, MultiScaleDiscriminator, LightConditionGenerator, SingleScaleDiscriminator
+from model import StudioLightGenerator, RandomLightGenerator, MultiScaleDiscriminator, LightConditionGenerator, \
+    SingleScaleDiscriminator, LightConditionVAE
 import os
 from utils import LossCollector, Visualizer
 from utils.transform import *
@@ -46,7 +47,7 @@ def main():
                                   num_resblock=opt.num_resblock,
                                   ngf=opt.ngf,
                                   padding_mode=opt.padding_mode_G,
-                                  latent_size=opt.latent_size,
+                                  lc_dim=opt.lc_dim,
                                   max_channel=opt.max_channel)
     studio_G = StudioLightGenerator(input_dim=opt.input_dim,
                                     output_dim=opt.output_dim,
@@ -54,26 +55,18 @@ def main():
                                     num_resblock=opt.num_resblock,
                                     ngf=opt.ngf,
                                     padding_mode=opt.padding_mode_G,
-                                    latent_size=opt.latent_size,
+                                    lc_dim=opt.lc_dim,
                                     max_channel=opt.max_channel)
-    lc_G = LightConditionGenerator(noise_dim=opt.noise_dim,
-                                   latent_size=opt.latent_size,
-                                   bottleneck_dim=opt.bottleneck_dim,
-                                   n_bottleneck=opt.n_bottleneck)
+    lc_G = LightConditionVAE(lc_dim=opt.lc_dim,
+                             latent_dim=opt.latent_dim)
     rand_D, lc_D = None, None
     train_dataloader, val_dataloader = None, None
     if opt.train:
-        rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2,
+        rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2 + opt.lc_dim[0],
                                          num_D=opt.num_D,
                                          n_layer=opt.n_layer_D,
                                          ndf=opt.ndf,
                                          padding_mode=opt.padding_mode_D)
-        lc_D = SingleScaleDiscriminator(input_nc=opt.latent_size[0],
-                                        n_layer=opt.n_layer_D,
-                                        ndf=opt.ndf,
-                                        stride=3,
-                                        padding=1,
-                                        padding_mode=opt.padding_mode_D)
         t = [partial(crop, psize=opt.patch_size),
              flip,
              rotate,
@@ -100,9 +93,10 @@ def main():
                                        gan_mode=opt.gan_mode,
                                        lambda_L1=opt.lambda_L1,
                                        lambda_feat=opt.lambda_feat,
-                                       lambda_vgg=opt.lambda_vgg)
-        solver.fit(noise_dim=opt.noise_dim,
-                   gpu_id=opt.gpu_id,
+                                       lambda_vgg=opt.lambda_vgg,
+                                       lambda_vae=opt.lambda_vae,
+                                       lambda_kl=opt.lambda_kl,)
+        solver.fit(gpu_id=opt.gpu_id,
                    lr=opt.lr,
                    save_dir=opt.save_dir,
                    max_step=opt.max_step,
@@ -129,14 +123,14 @@ def main():
         bottles_test = Bottle128Dataset(dataset_root=opt.dataset_root,
                                         phase='test')
         test_dataloader = DataLoader(bottles_test, batch_size=opt.batch_size_eval, shuffle=False)
-        solver.test(noise_dim=opt.noise_dim,
-                    gpu_id=opt.gpu_id,
-                    save_dir=opt.save_dir,
-                    visualizer=visualizer,
-                    test_dataloader=test_dataloader,
-                    save_result=True,
-                    step_label=opt.step_label,
-                    test_step=opt.test_step)
+        solver.test(
+            gpu_id=opt.gpu_id,
+            save_dir=opt.save_dir,
+            visualizer=visualizer,
+            test_dataloader=test_dataloader,
+            save_result=True,
+            step_label=opt.step_label,
+            test_step=opt.test_step)
 
     if opt.inference:
         # create dataloader
@@ -147,7 +141,6 @@ def main():
         solver.inference(gpu_id=opt.gpu_id,
                          dataloader=val_dataloader,
                          save_dir=opt.save_dir,
-                         noise_dim=opt.noise_dim,
                          num_lighting_infer=opt.num_lighting_infer,
                          label=opt.label_infer,
                          visualizer=visualizer)

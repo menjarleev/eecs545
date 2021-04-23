@@ -184,14 +184,14 @@ class StyledConvBlock(nn.Module):
             kernel_size=3,
             padding=1,
             style_dim=512,
-            latent_size=(8, 8),
+            lc_dim=(8, 8),
             initial=False,
             padding_mode='reflect',
     ):
         super().__init__()
 
         if initial:
-            self.conv1 = ConstantInput(in_channel, latent_size)
+            self.conv1 = ConstantInput(in_channel, lc_dim)
         else:
             self.conv1 = nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, padding_mode=padding_mode )
 
@@ -219,9 +219,9 @@ class StyledConvBlock(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, n_block, n_channel, out_channel, latent_size, style_dim, padding_mode='reflect'):
+    def __init__(self, n_block, n_channel, out_channel, lc_dim, style_dim, padding_mode='reflect'):
         super().__init__()
-        block = [StyledConvBlock(n_channel, n_channel, 3, 1, style_dim=style_dim, latent_size=latent_size, initial=True)]
+        block = [StyledConvBlock(n_channel, n_channel, 3, 1, style_dim=style_dim, lc_dim=lc_dim, initial=True)]
         for i in range(n_block - 2):
             block += [StyledConvBlock(n_channel, n_channel, 3, 1, style_dim=style_dim)]
         self.conv = nn.Sequential(nn.Conv2d(n_channel, out_channel, 3, 1, 1, padding_mode=padding_mode),

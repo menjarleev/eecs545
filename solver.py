@@ -12,12 +12,11 @@ import json
 
 class Solver:
 
-    def __init__(self, rand_G, lc_G, studio_G=None, rand_D=None, lc_D=None, name='PhotometricGAN', gpu_id=-1):
+    def __init__(self, rand_G, lc_G, studio_G=None, rand_D=None, name='PhotometricGAN', gpu_id=-1):
         self.name = name
         self.lc_G = lc_G
         self.rand_G = rand_G
         self.rand_D = rand_D
-        self.lc_D = lc_D
         self.studio_G = studio_G
         self.device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
 
@@ -36,11 +35,8 @@ class Solver:
             self.studio_G.to(self.device)
         if self.rand_D is not None:
             self.rand_D.to(self.device)
-        if self.lc_D is not None:
-            self.lc_D.to(self.device)
 
     def fit(self,
-            noise_dim,
             gpu_id,
             lr,
             save_dir,
@@ -80,7 +76,7 @@ class Solver:
         log_result = {}
         optimG = create_optimizer(chain(self.rand_G.parameters(), self.studio_G.parameters(), self.lc_G.parameters()),
                                   optim_name)
-        optimD = create_optimizer(chain(self.rand_D.parameters(), self.lc_D.parameters()), optim_name)
+        optimD = create_optimizer(chain(self.rand_D.parameters(), ), optim_name)
         schedulerG = torch.optim.lr_scheduler.MultiStepLR(
             optimG, [1000 * int(d) for d in decay.split('-')],
             gamma=gamma,
@@ -93,9 +89,7 @@ class Solver:
         visualizer.log_print("# params of lc_G: {}".format(sum(map(lambda x: x.numel(), self.lc_G.parameters()))))
         visualizer.log_print("# params of rand_G: {}".format(sum(map(lambda x: x.numel(), self.rand_G.parameters()))))
         visualizer.log_print("# params of rand_D: {}".format(sum(map(lambda x: x.numel(), self.rand_D.parameters()))))
-        visualizer.log_print("# params of lc_D: {}".format(sum(map(lambda x: x.numel(), self.lc_D.parameters()))))
-        visualizer.log_print(
-            "# params of studio_G: {}".format(sum(map(lambda x: x.numel(), self.studio_G.parameters()))))
+        visualizer.log_print("# params of studio_G: {}".format(sum(map(lambda x: x.numel(), self.studio_G.parameters()))))
 
         start = 0
 
@@ -130,30 +124,29 @@ class Solver:
             rand_lc = inputs['rand_lc'].to(self.device)
             studio = inputs['base'].to(self.device)
             rand_shape = inputs['rand_shape'].to(self.device)
-            rand = inputs['rand'].to(self.device)
             b_size = rand_lc.shape[0]
 
             fake_studio_fwd, lc_vec_fwd = self.studio_G(rand_lc)
             _, lc_vec_fwd_hat = self.studio_G(rand_shape)
             fake_rand_lc_fwd = self.rand_G(fake_studio_fwd, lc_vec_fwd)
-            noise = torch.randn(b_size, noise_dim, requires_grad=False).to(self.device)
-            lc_vec_bwd = self.lc_G(noise)
-            fake_rand_bwd = self.rand_G(rand_lc, lc_vec_bwd)
+            lc_vec_bwd = self.lc_G.sample(b_size, self.device)
+            encoded = self.lc_G(lc_vec_fwd.detach())
+            fake_rand_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_studio_bwd, fake_lc_vec_bwd = self.studio_G(fake_rand_lc_bwd)
-            gan_fake = torch.cat([fake_rand_bwd, rand], dim=1)
-            gan_real = torch.cat([rand_lc, studio], dim=1)
+            gan_fake = torch.cat([fake_rand_bwd, studio, F.interpolate(lc_vec_bwd, studio.shape[2:]).detach()], dim=1)
+            gan_real = torch.cat([rand_lc, studio, F.interpolate(lc_vec_fwd, studio.shape[2:]).detach()], dim=1)
 
-            def compute_GAN_loss(for_D=False):
+            def compute_finetune_loss(for_D=False):
                 if not for_D:
-                    loss_collector.compute_GAN_losses(self.rand_D, gan_fake, gan_real.detach(), for_discriminator=False, cls='rand')
-                    loss_collector.compute_GAN_losses(self.lc_D, lc_vec_bwd, lc_vec_fwd.detach(), for_discriminator=False, cls='lc')
+                    loss_collector.compute_GAN_losses(self.rand_D, gan_fake, gan_real.detach(), for_discriminator=False,
+                                                      cls='rand')
                     loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
+                    loss_collector.compute_VAE_losses(*encoded)
                 else:
                     loss_collector.compute_GAN_losses(self.rand_D, gan_fake.detach(), gan_real.detach(),
                                                       for_discriminator=True, cls='rand')
-                    loss_collector.compute_GAN_losses(self.lc_D, lc_vec_bwd.detach(), lc_vec_fwd.detach(),
-                                                      for_discriminator=True, cls='lc')
+
             def compute_encoding_loss():
                 loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
                 loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
@@ -161,15 +154,15 @@ class Solver:
 
             if finetune:
                 if begin_finetune:
-                    compute_GAN_loss(for_D=False)
+                    compute_finetune_loss(for_D=False)
                 else:
                     compute_encoding_loss()
             else:
-                compute_GAN_loss(for_D=False)
+                compute_finetune_loss(for_D=False)
                 compute_encoding_loss()
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
             if begin_finetune or not finetune:
-                compute_GAN_loss(for_D=True)
+                compute_finetune_loss(for_D=True)
                 loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
             loss_dict = {**loss_collector.loss_names_G, **loss_collector.loss_names_D}
 
@@ -184,7 +177,7 @@ class Solver:
 
             if (step + 1) % validation_interval == 0 or (step + 1) % save_interval == 0:
                 curr_lr = schedulerG.get_lr()[0]
-                self.summary_and_save(noise_dim, step, max_step, save_dir, save_result, log_result, curr_lr,
+                self.summary_and_save(step, max_step, save_dir, save_result, log_result, curr_lr,
                                       val_dataloader, visualizer, proceed_val=(step + 1) % validation_interval == 0)
                 if begin_finetune:
                     self.rand_G.eval()
@@ -221,12 +214,11 @@ class Solver:
         visualizer.log_print(test_log)
         self.save_log_iter(log_result, save_dir, 'test', visualizer)
 
-    def summary_and_save(self, noise_dim, step, max_step, save_dir, save_result, log_result, curr_lr, dataloader,
+    def summary_and_save(self, step, max_step, save_dir, save_result, log_result, curr_lr, dataloader,
                          visualizer, proceed_val=False):
         best_result = log_result['best'] if 'best' in log_result else None
         if proceed_val and dataloader is not None:
-            curr_result = self.evaluate(noise_dim=noise_dim,
-                                        dataloader=dataloader,
+            curr_result = self.evaluate(dataloader=dataloader,
                                         save_dir=save_dir,
                                         phase='val',
                                         save_result=save_result)
@@ -256,7 +248,7 @@ class Solver:
         self.save(save_dir, 'latest')
 
     @torch.no_grad()
-    def inference(self, gpu_id, dataloader, save_dir, noise_dim, num_lighting_infer, label, visualizer):
+    def inference(self, gpu_id, dataloader, save_dir, num_lighting_infer, label, visualizer):
         self.to(gpu_id)
         self.load(save_dir, label, visualizer)
         self.rand_G.eval()
@@ -267,8 +259,8 @@ class Solver:
         for i, inputs in enumerate(tqdm_data_loader):
             for j in range(num_lighting_infer):
                 studio_img = inputs['base'].to(self.device)
-                noise = torch.randn((studio_img.shape[0], noise_dim)).to(self.device)
-                light_vec = self.lc_G(noise)
+                b_size = studio_img.shape[0]
+                light_vec = self.lc_G.sample(b_size, self.device)
                 fake_rand_img = self.rand_G(studio_img, light_vec)
                 fake_rand_img = tensor2im(fake_rand_img)
                 for k in range(studio_img.shape[0]):
@@ -281,7 +273,7 @@ class Solver:
         self.lc_G.eval()
 
     @torch.no_grad()
-    def evaluate(self, noise_dim, dataloader, save_dir, phase='test', save_result=False, eval_step=-1):
+    def evaluate(self, dataloader, save_dir, phase='test', save_result=False, eval_step=-1):
         self.rand_G.eval()
         self.studio_G.eval()
         psnr_studio = 0
@@ -303,8 +295,7 @@ class Solver:
             rand_img = inputs['rand_lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
             b_size = rand_img.shape[0]
-            noise = torch.randn(b_size, noise_dim).to(self.device)
-            lc_from_noise = self.lc_G(noise)
+            lc_from_noise = self.lc_G.sample(b_size, self.device)
             infer_rand = self.rand_G(studio_img, lc_from_noise)
             fake_studio_img, light_vec_forward = self.studio_G(rand_img)
 
@@ -370,7 +361,6 @@ class Solver:
         state_dict = dict()
         update_state_dict('rand_G', self.rand_G)
         update_state_dict('rand_D', self.rand_D)
-        update_state_dict('lc_D', self.lc_D)
         update_state_dict('lc_G', self.lc_G)
         update_state_dict('studio_G', self.studio_G)
         state_path = os.path.join(save_dir, 'state_{}.pth'.format(label))
@@ -429,7 +419,3 @@ class Solver:
         if self.rand_D is not None:
             load_network(self.rand_D, state, 'rand_D')
             self.rand_D.to(self.device)
-
-        if self.lc_D is not None:
-            load_network(self.lc_D, state, 'lc_D')
-            self.lc_D.to(self.device)

@@ -2,7 +2,15 @@ from model.loss import *
 import torch
 
 class LossCollector:
-    def __init__(self, gpu_id, loss_terms, gan_mode, lambda_L1=0., lambda_feat=0., lambda_vgg=0.):
+    def __init__(self,
+                 gpu_id,
+                 loss_terms,
+                 gan_mode,
+                 lambda_L1=0.,
+                 lambda_feat=0.,
+                 lambda_vgg=0.,
+                 lambda_vae=0.,
+                 lambda_kl=1.):
         self.device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
         self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
         self.loss_names_G = dict()
@@ -19,6 +27,9 @@ class LossCollector:
         if 'vgg' in loss_terms:
             self.criterionVGG = VGGLoss().to(self.device)
             self.weight['VGG'] = lambda_vgg
+        if 'vae' in loss_terms:
+            self.weight['kl'] = lambda_kl
+            self.weight['vae'] =lambda_vae
 
 
     def compute_GAN_losses(self, netD, fake, gt, for_discriminator, cls):
@@ -48,6 +59,14 @@ class LossCollector:
         loss_L1 = self.criterionL1(fake, gt)
         self.loss_names_G[f'{cls}_L1'] = loss_L1 * self.weight['L1'] * smoother
 
+    def compute_VAE_losses(self, recons, input, mu, log_var):
+        if not 'kl' in self.weight.keys():
+            return
+        kld_weight = self.weight['kl'] # Account for the minibatch samples from the dataset
+        recons_loss = self.criterionL1(recons, input)
+        kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
+        self.loss_names_G['reconstruction'] = recons_loss * self.weight['vae']
+        self.loss_names_G['KLD'] = kld_loss * kld_weight
 
     def compute_VGG_losses(self, fake_image, gt_image):
         if not 'VGG' in self.weight:

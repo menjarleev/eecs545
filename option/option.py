@@ -47,15 +47,17 @@ def parse_args():
     parser.add_argument('--ckpt_root', type=str, default='./ckpt')
     parser.add_argument('--model_dir', type=str, default=None)
     parser.add_argument('--lambda_feat', type=float, default=10.0)
-    parser.add_argument('--lambda_L1', type=float, default=3.0)
+    parser.add_argument('--lambda_L1', type=float, default=10.0)
     parser.add_argument('--lambda_vgg', type=float, default=10.0)
+    parser.add_argument('--lambda_kl', type=float, default=10.0)
+    parser.add_argument('--lambda_vae', type=float, default=20.0)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--name', type=str, default='photometricGAN')
     # parser.add_argument('--amp', type=str, default='O0')
     parser.add_argument('--print_mem', type=bool, default=True)
     parser.add_argument('--step_label', type=str, default='latest')
     parser.add_argument('--continue_train', action='store_true')
-    parser.add_argument('--loss_terms', type=str, default=['L1', 'GAN', 'feat'], nargs='+')
+    parser.add_argument('--loss_terms', type=str, default=['L1', 'GAN', 'feat', 'vae'], nargs='+')
     parser.add_argument('--gpu_id', type=int, default=0)
 
     # test
@@ -69,7 +71,6 @@ def parse_args():
 
     # photometrics specific options
     parser.add_argument('--num_lighting', type=int, default=9)
-    parser.add_argument('--z_dim', type=int, default=256)
     parser.add_argument('--bottleneck_z', type=int, default=256)
     parser.add_argument('--num_conv_z', type=int, default=2)
     parser.add_argument('--num_linear_z', type=int, default=4)
@@ -78,8 +79,8 @@ def parse_args():
     parser.add_argument('--inference', action='store_true', dest='inference')
     parser.add_argument('--num_lighting_infer', type=int, default=9)
     parser.add_argument('--label_infer', type=str, default='best', choices=['best', 'latest'])
-    parser.add_argument('--latent_size', type=int, nargs='+', default=(16, 16, 16))
-    parser.add_argument('--noise_dim', type=int, default=32)
+    parser.add_argument('--lc_dim', type=int, nargs='+', default=(16, 16, 16))
+    parser.add_argument('--latent_dim', type=int, default=64)
     parser.add_argument('--n_bottleneck', type=int, default=8)
     parser.add_argument('--bottleneck_dim', type=int, default=256)
 
