@@ -188,7 +188,6 @@ class Solver:
 
     @torch.no_grad()
     def test(self,
-             noise_dim,
              gpu_id,
              save_dir,
              visualizer,
@@ -204,7 +203,7 @@ class Solver:
                 log_result = json.load(json_file)
         else:
             log_result = {}
-        test_result = self.evaluate(noise_dim, test_dataloader, save_dir, phase='test', save_result=save_result,
+        test_result = self.evaluate(test_dataloader, save_dir, phase='test', save_result=save_result,
                                     eval_step=test_step)
         log_result['test'] = test_result
         test_log = 'test result \n'
