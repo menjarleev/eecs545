@@ -4,7 +4,7 @@ from option.option import get_option
 from torchvision import transforms
 
 from solver import Solver
-from data import Bottle128Dataset, ToTensor
+from data import *
 from torch.utils.data import DataLoader
 from model import StudioLightGenerator, RandomLightGenerator, MultiScaleDiscriminator, LightConditionGenerator, \
     SingleScaleDiscriminator, LightConditionVAE
@@ -60,7 +60,7 @@ def main():
     lc_G = LightConditionVAE(lc_dim=opt.lc_dim,
                              latent_dim=opt.latent_dim)
     rand_D, lc_D = None, None
-    train_dataloader, val_dataloader = None, None
+    train_dataloader, test_dataset = None, None
     if opt.train:
         rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2 + opt.lc_dim[0],
                                          num_D=opt.num_D,
@@ -72,15 +72,12 @@ def main():
              rotate,
              partial(pixel_shift, shift_range=opt.shift_range)]
         transform = Transform(transforms=t)
-        bottles_train = Bottle128Dataset(dataset_root=opt.dataset_root,
-                                         phase='train',
-                                         transform=transform)
-        train_dataloader = DataLoader(bottles_train, batch_size=opt.batch_size, shuffle=True)
+        train_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='train', transform=transform)")
+        train_dataloader = DataLoader(train_dataset, batch_size=opt.batch_size, shuffle=True)
         # create dataloader
         if opt.validation:
-            bottles_val = Bottle128Dataset(dataset_root=opt.dataset_root,
-                                           phase='valid')
-            val_dataloader = DataLoader(bottles_val, batch_size=opt.batch_size_eval, shuffle=False)
+            valid_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='valid', transform=transform)")
+            valid_dataloader = DataLoader(valid_dataset, batch_size=opt.batch_size, shuffle=True)
 
     solver = Solver(rand_G, lc_G, studio_G, rand_D, lc_D, gpu_id=opt.gpu_id)
     if opt.train:
@@ -108,7 +105,7 @@ def main():
                    visualizer=visualizer,
                    step_label=opt.step_label,
                    train_dataloader=train_dataloader,
-                   val_dataloader=val_dataloader,
+                   val_dataloader=valid_dataloader,
                    validation_interval=opt.validation_interval,
                    save_interval=opt.save_interval,
                    optim_name=opt.optim_name,
@@ -120,9 +117,8 @@ def main():
     if opt.test:
         # create dataloader
         # substitute train with test dataset you like
-        bottles_test = Bottle128Dataset(dataset_root=opt.dataset_root,
-                                        phase='test')
-        test_dataloader = DataLoader(bottles_test, batch_size=opt.batch_size_eval, shuffle=False)
+        test_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='test', transform=transform)")
+        test_dataloader = DataLoader(test_dataset, batch_size=opt.batch_size_eval, shuffle=False)
         solver.test(
             gpu_id=opt.gpu_id,
             save_dir=opt.save_dir,
@@ -135,11 +131,10 @@ def main():
     if opt.inference:
         # create dataloader
         # substitute train with infer dataset you like
-        bottles_val = Bottle128Dataset(dataset_root=opt.dataset_root,
-                                       phase='valid')
-        val_dataloader = DataLoader(bottles_val, batch_size=opt.batch_size_eval, shuffle=False)
+        test_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='test', transform=transform)")
+        test_dataloader = DataLoader(test_dataset, batch_size=opt.batch_size_eval, shuffle=False)
         solver.inference(gpu_id=opt.gpu_id,
-                         dataloader=val_dataloader,
+                         dataloader=test_dataloader,
                          save_dir=opt.save_dir,
                          num_lighting_infer=opt.num_lighting_infer,
                          label=opt.label_infer,

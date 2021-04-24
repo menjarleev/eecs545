@@ -5,23 +5,10 @@ from utils.tensor_ops import normalize, im2tensor
 import skimage.io as io
 import os
 import glob
+from abc import abstractmethod
 
-class ToTensor(object):
-    """Converts numpy ndarrays in sample to Tensors"""
-    def __call__(self, sample):   
-        return {
-            'base' : torch.from_numpy(sample['base']),
-            'lc' : torch.from_numpy(sample['lc']),
-            'lc_all': torch.from_numpy(sample['lc_all'])
-        }
-
-class Bottle128Dataset(Dataset):
-    def __init__(self, dataset_root, phase='train', transform=None):
-        self.base_paths = sorted(glob.glob(f'{dataset_root}/{phase}/*/base.jpg'))
-        self.lc_paths = sorted(glob.glob(f'{dataset_root}/{phase}/*/lc_*.jpg'))
-        self.num_sample = len(glob.glob(f'{dataset_root}/{phase}/*'))
-        assert len(self.lc_paths) % self.num_sample == 0, 'every folder should contains same amount of lighting conditions'
-        self.num_lc = len(self.lc_paths) // self.num_sample
+class BaseDataset(Dataset):
+    def __init__(self, phase='train', transform=None):
         self.phase = phase
         self.transform = transform
 
@@ -41,6 +28,46 @@ class Bottle128Dataset(Dataset):
                 'rand_lc': lc,
                 'rand_shape': rand_shape,
                 'rand': rand}
+
+    @abstractmethod
+    def __len__(self):
+        pass
+
+class Bottle128Dataset(BaseDataset):
+    def __init__(self, dataset_root, phase='train', transform=None):
+        super(Bottle128Dataset, self).__init__(phase, transform)
+        self.base_paths = sorted(glob.glob(f'{dataset_root}/{phase}/*/base.jpg'))
+        self.lc_paths = sorted(glob.glob(f'{dataset_root}/{phase}/*/lc_*.jpg'))
+        self.num_sample = len(glob.glob(f'{dataset_root}/{phase}/*'))
+        assert len(self.lc_paths) % self.num_sample == 0, 'every folder should contains same amount of lighting conditions'
+        self.num_lc = len(self.lc_paths) // self.num_sample
+
+    def __len__(self):
+        return len(self.lc_paths)
+
+class TrashBinDataset(BaseDataset):
+    def __init__(self, dataset_root, phase='train', transform=None, split=.8):
+        super(TrashBinDataset, self).__init__(phase, transform)
+        folder_name = sorted(os.listdir(f'{dataset_root}'))
+        if phase == 'train':
+            folder_name = folder_name[:int(len(folder_name) * split)]
+        elif phase == 'valid':
+            folder_name = folder_name[int(len(folder_name) * split):int(len(folder_name) * (split + (1 - split) / 2))]
+        elif phase == 'test':
+            folder_name = folder_name[int(len(folder_name) * (split + (1 - split) / 2)):]
+        else:
+            raise ValueError
+        base_paths = []
+        lc_paths = []
+        for fn in folder_name:
+            base_paths += glob.glob(f'{dataset_root}/{fn}/*_theta_60_phi_130*.png')
+            lc_paths += glob.glob(f'{dataset_root}/{fn}/*.png')
+        self.base_paths = set(base_paths)
+        self.lc_paths = set(lc_paths)
+        self.lc_paths = sorted(list(self.lc_paths.difference(self.base_paths)))
+        self.base_paths = sorted(list(self.base_paths))
+        self.num_sample = len(folder_name)
+        self.num_lc = len(self.lc_paths) // self.num_sample
 
     def __len__(self):
         return len(self.lc_paths)

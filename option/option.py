@@ -29,6 +29,7 @@ def parse_args():
 
     # dataset
     parser.add_argument('--dataset_root', type=str, default='./')
+    parser.add_argument('--dataset', type=str, default='TrashBinDataset', choices=['Bottle128Dataset', 'TrashBinDataset'])
 
     # training setups
     parser.add_argument('--optim_name', type=str, default='Adam',
