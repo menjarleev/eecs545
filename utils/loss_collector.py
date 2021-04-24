@@ -94,5 +94,7 @@ class LossCollector:
         loss.backward()
         optimizer.step()
         scheduler.step()
+        self.loss_names_G = {}
+        self.loss_names_D = {}
         return losses
 
