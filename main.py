@@ -93,7 +93,6 @@ def main():
                    lr=opt.lr,
                    save_dir=opt.save_dir,
                    max_step=opt.max_step,
-                   finetune=opt.finetune,
                    finetune_step=opt.finetune_step,
                    gamma=opt.gamma,
                    decay=opt.decay,

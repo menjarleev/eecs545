@@ -33,7 +33,6 @@ class PhotometricGAN(torch.nn.Module):
             visualizer,
             step_label='latest',
             optim_name='Adam',
-            finetune=True,
             train_dataloader=None,
             val_dataloader=None,
             validation_interval=1000,
@@ -91,20 +90,22 @@ class PhotometricGAN(torch.nn.Module):
                 start = latest_result['step'] if step_label == 'latest' else best_result['step']
             else:
                 visualizer.log_print('iteration file at %s is not found' % json_path)
-        begin_finetune = False
+        finetune = False
         for step in tqdm(range(start, max_step), desc='train', leave=False):
             try:
                 inputs = next(iters)
             except (UnboundLocalError, StopIteration):
                 iters = iter(train_dataloader)
                 inputs = next(iters)
-            if finetune and (step + 1) >= finetune_step and not begin_finetune:
-                begin_finetune = True
+            if (step + 1) >= finetune_step and not finetune:
+                finetune = True
                 self.studio_G.eval()
                 self.rand_G.eval()
                 for _, param in self.studio_G.named_parameters():
                     param.requires_grad = False
                 for _, param in self.rand_G.named_parameters():
+                    param.requires_grad = False
+                for _, param in self.rand_D.named_parameters():
                     param.requires_grad = False
             rand_lc = inputs['rand_lc'].to(self.device)
             studio = inputs['base'].to(self.device)
@@ -114,44 +115,31 @@ class PhotometricGAN(torch.nn.Module):
             fake_studio_fwd, lc_vec_fwd = self.studio_G(rand_lc)
             _, lc_vec_fwd_hat = self.studio_G(rand_shape)
             fake_rand_lc_fwd = self.rand_G(fake_studio_fwd, (lc_vec_fwd_hat + lc_vec_fwd) / 2)
-            lc_vec_bwd = self.lc_G.sample(b_size, self.device) if (not finetune or begin_finetune) else \
-                torch.randn_like(lc_vec_fwd, requires_grad=False).to(self.device)
+            lc_vec_bwd = self.lc_G.sample(b_size, self.device)
             fake_rand_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_studio_bwd, fake_lc_vec_bwd = self.studio_G(fake_rand_lc_bwd)
-            gan_fake = torch.cat([fake_rand_bwd, studio, F.interpolate(lc_vec_bwd, studio.shape[2:]).detach()], dim=1)
+            gan_fake = torch.cat([fake_rand_bwd, studio, F.interpolate(lc_vec_bwd, studio.shape[2:])], dim=1) if finetune \
+                else torch.cat([fake_rand_lc_fwd, studio, F.interpolate(lc_vec_fwd, studio.shape[2:]).detach()], dim=1)
             gan_real = torch.cat([rand_lc, studio, F.interpolate(lc_vec_fwd, studio.shape[2:]).detach()], dim=1)
 
-            def compute_finetune_loss(for_D=False):
-                if not for_D:
-                    loss_collector.compute_GAN_losses(self.rand_D, gan_fake, gan_real.detach(), for_discriminator=False,
-                                                      cls='rand')
-                    loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
-                    if loss_collector.has_VAE:
-                        loss_collector.compute_VAE_losses(*self.lc_G(lc_vec_fwd.detach()))
-                else:
-                    loss_collector.compute_GAN_losses(self.rand_D, gan_fake.detach(), gan_real.detach(),
-                                                      for_discriminator=True, cls='rand')
+            loss_collector.compute_GAN_losses(self.rand_D, gan_fake, gan_real.detach(), for_discriminator=False,
+                                              cls='rand')
+            loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
+            loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
+            loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
+            loss_collector.compute_L1_losses(lc_vec_fwd, lc_vec_fwd_hat, 'fake_vec')
+            if loss_collector.has_VAE:
+                loss_collector.compute_VAE_losses(*self.lc_G(lc_vec_fwd.detach()))
 
-            def compute_encoding_loss():
-                loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
-                loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
-                loss_collector.compute_L1_losses(lc_vec_fwd, lc_vec_fwd_hat, 'fake_vec')
-
-            if finetune:
-                if begin_finetune:
-                    compute_finetune_loss(for_D=False)
-                else:
-                    compute_encoding_loss()
-            else:
-                compute_finetune_loss(for_D=False)
-                compute_encoding_loss()
             loss_G = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_collector.loss_names_G.items()}
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
+
             loss_D = {}
-            if begin_finetune or not finetune:
-                compute_finetune_loss(for_D=True)
+            if not finetune:
                 loss_D = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_collector.loss_names_D.items()}
+                loss_collector.compute_GAN_losses(self.rand_D, gan_fake.detach(), gan_real.detach(),
+                                                  for_discriminator=True, cls='rand')
                 loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
 
             if (step + 1) % log_interval == 0:
@@ -167,7 +155,7 @@ class PhotometricGAN(torch.nn.Module):
                 curr_lr = schedulerG.get_last_lr()
                 self.summary_and_save(step, max_step, save_dir, save_result, log_result, curr_lr,
                                       val_dataloader, visualizer, proceed_val=(step + 1) % validation_interval == 0)
-                if begin_finetune:
+                if finetune:
                     self.rand_G.eval()
                     self.studio_G.eval()
 

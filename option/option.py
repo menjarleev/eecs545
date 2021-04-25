@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument('--ndf', type=int, default=32)
     parser.add_argument('--n_layer_D', type=int, default=3)
     parser.add_argument('--num_D', type=int, default=2)
-    parser.add_argument('--gan_mode', type=str, default='ls', help='[ls|origin|hinge]')
+    parser.add_argument('--gan_mode', type=str, default='hinge', help='[ls|origin|hinge]')
     parser.add_argument('--norm_D', type=str, default='instance')
     parser.add_argument('--use_vgg', action='store_true')
     parser.add_argument('--dropout', action='store_true')
@@ -91,7 +91,6 @@ def parse_args():
     parser.add_argument('--shift_range', type=int, nargs='+', default=(-20, 20))
 
     parser.add_argument('--finetune_step', type=int, default=0)
-    parser.add_argument('--finetune', action='store_true', dest='finetune')
     return parser.parse_args()
 
 
