@@ -180,7 +180,7 @@ class LightConditionGenerator(nn.Module):
         if noise is None:
             noise = []
             for i in range(self.n_block):
-                noise += [th.randn(b_size, 1, *self.lc_dim[1:], device=input.device)]
+                noise += [torch.randn(b_size, 1, *self.lc_dim[1:], device=input.device)]
         out = self.generator(style, noise)
 
         return out
@@ -260,7 +260,7 @@ class LightConditionVAE(nn.Module):
         :return: (Tensor) List of latent codes
         """
         result = self.encoder(input)
-        result = th.flatten(result, start_dim=1)
+        result = torch.flatten(result, start_dim=1)
 
         # Split the result into mu and var components
         # of the latent Gaussian distribution
@@ -290,8 +290,8 @@ class LightConditionVAE(nn.Module):
         :param logvar: (Tensor) Standard deviation of the latent Gaussian [B x D]
         :return: (Tensor) [B x D]
         """
-        std = th.exp(0.5 * logvar)
-        eps = th.randn_like(std)
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
         return eps * std + mu
 
     def forward(self, input, **kwargs):
@@ -303,7 +303,7 @@ class LightConditionVAE(nn.Module):
     def sample(self,
                num_samples:int,
                current_device: int, **kwargs):
-        z = th.randn(num_samples, self.latent_dim)
+        z = torch.randn(num_samples, self.latent_dim)
 
         z = z.to(current_device)
 

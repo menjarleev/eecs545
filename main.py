@@ -1,13 +1,9 @@
 import json
-import torch
 from option.option import get_option
-from torchvision import transforms
 
-from solver import Solver
 from data import *
 from torch.utils.data import DataLoader
-from model import StudioLightGenerator, RandomLightGenerator, MultiScaleDiscriminator, LightConditionGenerator, \
-    SingleScaleDiscriminator, LightConditionVAE
+from model import *
 import os
 from utils import LossCollector, Visualizer
 from utils.transform import *
@@ -79,7 +75,7 @@ def main():
             valid_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='valid', transform=transform)")
             valid_dataloader = DataLoader(valid_dataset, batch_size=opt.batch_size, shuffle=True)
 
-    solver = Solver(rand_G, lc_G, studio_G, rand_D, lc_D, gpu_id=opt.gpu_id)
+    solver = PhotometricGAN(rand_G, lc_G, studio_G, rand_D, lc_D, gpu_id=opt.gpu_id)
     if opt.train:
         # for debug
         # from pyinstrument import Profiler

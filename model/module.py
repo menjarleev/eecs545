@@ -29,9 +29,9 @@ class SpatialAttention(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        avg_out = th.mean(x, dim=1, keepdim=True)
-        max_out, _ = th.max(x, dim=1, keepdim=True)
-        x = th.cat([avg_out, max_out], dim=1)
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        x = torch.cat([avg_out, max_out], dim=1)
         x = self.conv1(x)
         return self.sigmoid(x)
 
@@ -160,7 +160,7 @@ class NoiseInjection(nn.Module):
     def __init__(self, channel):
         super().__init__()
 
-        self.weight = nn.Parameter(th.zeros(1, channel, 1, 1))
+        self.weight = nn.Parameter(torch.zeros(1, channel, 1, 1))
 
     def forward(self, image, noise):
         return image + self.weight * noise
@@ -169,7 +169,7 @@ class ConstantInput(nn.Module):
     def __init__(self, channel, size=(8, 8)):
         super().__init__()
 
-        self.input = nn.Parameter(th.randn(1, channel, *size))
+        self.input = nn.Parameter(torch.randn(1, channel, *size))
 
     def forward(self, input):
         batch = input.shape[0]

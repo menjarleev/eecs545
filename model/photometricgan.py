@@ -10,8 +10,7 @@ from itertools import chain
 import json
 
 
-class Solver:
-
+class PhotometricGAN(torch.nn.Module):
     def __init__(self, rand_G, lc_G, studio_G=None, rand_D=None, name='PhotometricGAN', gpu_id=-1):
         self.name = name
         self.lc_G = lc_G
@@ -19,22 +18,6 @@ class Solver:
         self.rand_D = rand_D
         self.studio_G = studio_G
         self.device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
-
-    def to(self, device):
-        if type(device) == int:
-            self.device = torch.device(f'cuda:{device}' if device != -1 else 'cpu')
-        elif type(device) == torch.device:
-            self.device = device
-        else:
-            raise ValueError(f'{device} is not a device')
-        if self.rand_G is not None:
-            self.rand_G.to(self.device)
-        if self.lc_G is not None:
-            self.lc_G.to(self.device)
-        if self.studio_G is not None:
-            self.studio_G.to(self.device)
-        if self.rand_D is not None:
-            self.rand_D.to(self.device)
 
     def fit(self,
             gpu_id,
@@ -250,8 +233,7 @@ class Solver:
     def inference(self, gpu_id, dataloader, save_dir, num_lighting_infer, label, visualizer):
         self.to(gpu_id)
         self.load(save_dir, label, visualizer)
-        self.rand_G.eval()
-        self.lc_G.eval()
+        self.eval()
         tqdm_data_loader = tqdm(dataloader, desc='infer', leave=False)
         rand_img_dir = os.path.join(save_dir, f'infer_rand')
         os.makedirs(rand_img_dir, exist_ok=True)
@@ -268,8 +250,7 @@ class Solver:
                     os.makedirs(save_folder, exist_ok=True)
                     file_path = os.path.join(save_folder, f'{j + 1}.jpg')
                     io.imsave(file_path, fake_k_lighting_j)
-        self.rand_G.train()
-        self.lc_G.eval()
+        self.train()
 
     @torch.no_grad()
     def evaluate(self, dataloader, save_dir, phase='test', save_result=False, eval_step=-1):
@@ -353,47 +334,36 @@ class Solver:
         visualizer.log_print('update [{}] for status file'.format(label))
 
     def save(self, save_dir, label):
-        def update_state_dict(name, module):
-            state_dict.update({name: module.cpu().state_dict()})
-            module.to(self.device)
-
-        state_dict = dict()
-        update_state_dict('rand_G', self.rand_G)
-        update_state_dict('rand_D', self.rand_D)
-        update_state_dict('lc_G', self.lc_G)
-        update_state_dict('studio_G', self.studio_G)
+        state_dict = self.cpu().state_dict()
+        self.to(self.device)
         state_path = os.path.join(save_dir, 'state_{}.pth'.format(label))
         torch.save(state_dict, state_path)
 
     def load(self, save_dir, label, visualizer):
-        def load_network(network, pretrained_dict, name):
-            if name in pretrained_dict.keys():
-                model_dict = pretrained_dict[name]
+        def load_network(network, pretrained_dict):
+            try:
+                network.load_state_dict(pretrained_dict)
+                visualizer.log_print('network loaded')
+            except:
+                pretrained_dict = network.state_dict()
                 try:
-                    network.load_state_dict(model_dict)
-                    visualizer.log_print('network %s loaded' % name)
+                    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in pretrained_dict}
+                    network.load_state_dict(pretrained_dict)
+                    visualizer.log_print(
+                        'Pretrained network has excessive layers; Only loading layers that are used')
                 except:
-                    model_dict = network.state_dict()
-                    try:
-                        model_dict = {k: v for k, v in model_dict.items() if k in model_dict}
-                        network.load_state_dict(model_dict)
-                        visualizer.log_print(
-                            'Pretrained network %s has excessive layers; Only loading layers that are used' % name)
-                    except:
-                        visualizer.log_print(
-                            'Pretrained network %s has fewer layers; The following are not initialized:' % name)
-                        not_initialized = set()
-                        for k, v in model_dict.items():
-                            if v.size() == model_dict[k].size():
-                                model_dict[k] = v
+                    visualizer.log_print(
+                        'Pretrained network has fewer layers; The following are not initialized:')
+                    not_initialized = set()
+                    for k, v in pretrained_dict.items():
+                        if v.size() == pretrained_dict[k].size():
+                            pretrained_dict[k] = v
 
-                        for k, v in model_dict.items():
-                            if k not in model_dict or v.size() != model_dict[k].size():
-                                not_initialized.add('.'.join(k.split('.')[:2]))
-                        visualizer.log_print(sorted(not_initialized))
-                        network.load_state_dict(model_dict)
-            else:
-                visualizer.log_print(f'{name} not found in pth file. train from scratch.')
+                    for k, v in pretrained_dict.items():
+                        if k not in pretrained_dict or v.size() != pretrained_dict[k].size():
+                            not_initialized.add('.'.join(k.split('.')[:2]))
+                    visualizer.log_print(sorted(not_initialized))
+                    network.load_state_dict(pretrained_dict)
 
         state_path = os.path.join(save_dir, 'state_{}.pth'.format(label))
 
@@ -402,19 +372,5 @@ class Solver:
             return
 
         state = torch.load(state_path)
-
-        if self.rand_G is not None:
-            load_network(self.rand_G, state, 'rand_G')
-            self.rand_G.to(self.device)
-
-        if self.lc_G is not None:
-            load_network(self.lc_G, state, 'lc_G')
-            self.lc_G.to(self.device)
-
-        if self.studio_G is not None:
-            load_network(self.studio_G, state, 'studio_G')
-            self.studio_G.to(self.device)
-
-        if self.rand_D is not None:
-            load_network(self.rand_D, state, 'rand_D')
-            self.rand_D.to(self.device)
+        load_network(self, state)
+        self.to(self.device)
