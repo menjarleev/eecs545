@@ -106,9 +106,13 @@ class StudioLightGenerator(nn.Module):
 
         self.encode = self.build_encode_block(num_downsample, n_channel, padding_mode, actv)
 
-        self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode,  norm_layer, actv)
+        self.decode_z = self.build_decode_block(num_downsample, n_channel, padding_mode, norm_layer, actv)
+        self.out_z = nn.Sequential(nn.Conv2d(ngf, lc_nc, 1, 1, 0),
+                                   nn.Tanh())
 
-        self.out = nn.Sequential(nn.Conv2d(ngf, output_dim + lc_nc, 1, 1, 0),
+        self.decode_x = self.build_decode_block(num_downsample, n_channel, padding_mode,  norm_layer, actv)
+
+        self.out_x = nn.Sequential(nn.Conv2d(ngf, output_dim, 1, 1, 0),
                                  nn.Tanh())
         self.split = [output_dim, lc_nc]
 
@@ -142,9 +146,11 @@ class StudioLightGenerator(nn.Module):
     def forward(self, img):
         x = self.from_rgb(img)
         x = self.encode(x)
+        z = self.decode_z(x)
+        z = self.out_z(z)
         res = self.resblock(x)
-        x = self.decode(res)
-        x, z = torch.split(self.out(x), self.split, 1)
+        x = self.decode_x(res)
+        x = self.out_x(x)
         return x, z
 
 class StyleGANGenerator(nn.Module):
