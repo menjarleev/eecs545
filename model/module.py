@@ -1,5 +1,5 @@
-import torch as th
 from torch import nn
+import torch
 from functools import partial
 import torch.nn.functional as F
 
@@ -155,6 +155,61 @@ class SPADE(nn.Module):
         out = normalized * (1 + gamma) + beta
 
         return out
+
+
+class SPADEConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, label_nc, kernel_size=3, stride=1, padding=1, padding_mode='reflect', actv=nn.LeakyReLU):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, padding_mode=padding_mode)
+        self.norm = SPADE(out_channels, label_nc)
+        self.actv = actv()
+
+    def forward(self, x, segmap):
+        x = self.conv(x)
+        x = self.norm(x, segmap)
+        x = self.actv(x)
+        return x
+
+class SPADEConvTransposeBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, label_nc, scale_factor, kernel_size=3, stride=1, padding=1, padding_mode='reflect', actv=nn.LeakyReLU):
+        super().__init__()
+        self.upsample = nn.Sequential(nn.Upsample(scale_factor=scale_factor),
+                                      nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, padding_mode=padding_mode))
+        self.norm1 = SPADE(out_channels, label_nc)
+        self.actv1 = actv()
+        self.conv = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, padding_mode=padding_mode)
+        self.norm2 = SPADE(out_channels, label_nc)
+        self.actv2 = actv()
+
+    def forward(self, x, segmap):
+        x = self.upsample(x)
+        x = self.norm1(x, segmap)
+        x = self.actv1(x)
+        x = self.conv(x)
+        x = self.norm2(x, segmap)
+        x = self.actv2(x)
+        return x
+
+class SPADEResnetBlock(nn.Module):
+    def __init__(self, in_channel, out_channel, label_nc, activation=nn.LeakyReLU, kernel_size=3, stride=1, padding_mode='reflect'):
+        super(SPADEResnetBlock, self).__init__()
+        self.downscale = None
+        if stride > 1:
+            self.downscale = nn.Conv2d(in_channel, out_channel, kernel_size=kernel_size, stride=stride, padding=kernel_size // 2, padding_mode=padding_mode)
+        self.spade_conv1 = SPADEConvBlock(in_channel, out_channel, label_nc, kernel_size, stride, padding_mode=padding_mode, actv=activation)
+        self.conv2 = nn.Conv2d(in_channel, out_channel, kernel_size=3, padding=kernel_size // 2, padding_mode=padding_mode, stride=stride)
+        self.norm = SPADE(norm_nc=out_channel, label_nc=label_nc)
+
+    def forward(self, x, segmap):
+        scale_x = x
+        if self.downscale is not None:
+            scale_x = self.downscale(scale_x)
+        x = self.spade_conv1(x, segmap)
+        x = self.conv2(x)
+        x = self.norm(x, segmap)
+        out = scale_x + x
+        return out
+
 
 class NoiseInjection(nn.Module):
     def __init__(self, channel):

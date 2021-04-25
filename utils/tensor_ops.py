@@ -27,7 +27,7 @@ def quantize(img, rgb_range):
 
 def normalize(tensor, mean=0.5, std=0.5):
     def _normalize(t):
-        c, _, _ = t.size()
+        c, _, _ = t.shape
         if type(mean) == list:
             _mean = mean
         else:

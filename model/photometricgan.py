@@ -1,17 +1,19 @@
 import os
 import skimage.io as io
 import torch
+import torch.nn.functional as F
 from subprocess import call
 from tqdm import tqdm, trange
 from skimage.metrics import structural_similarity
-import torch.nn.functional as F
-from utils import calculate_psnr, tensor2im
+from utils.utils import calculate_psnr
+from utils.tensor_ops import tensor2im
 from itertools import chain
 import json
 
 
 class PhotometricGAN(torch.nn.Module):
     def __init__(self, rand_G, lc_G, studio_G=None, rand_D=None, name='PhotometricGAN', gpu_id=-1):
+        super().__init__()
         self.name = name
         self.lc_G = lc_G
         self.rand_G = rand_G
@@ -72,7 +74,8 @@ class PhotometricGAN(torch.nn.Module):
         visualizer.log_print("# params of lc_G: {}".format(sum(map(lambda x: x.numel(), self.lc_G.parameters()))))
         visualizer.log_print("# params of rand_G: {}".format(sum(map(lambda x: x.numel(), self.rand_G.parameters()))))
         visualizer.log_print("# params of rand_D: {}".format(sum(map(lambda x: x.numel(), self.rand_D.parameters()))))
-        visualizer.log_print("# params of studio_G: {}".format(sum(map(lambda x: x.numel(), self.studio_G.parameters()))))
+        visualizer.log_print(
+            "# params of studio_G: {}".format(sum(map(lambda x: x.numel(), self.studio_G.parameters()))))
 
         start = 0
 
@@ -111,8 +114,9 @@ class PhotometricGAN(torch.nn.Module):
 
             fake_studio_fwd, lc_vec_fwd = self.studio_G(rand_lc)
             _, lc_vec_fwd_hat = self.studio_G(rand_shape)
-            fake_rand_lc_fwd = self.rand_G(fake_studio_fwd, lc_vec_fwd)
-            lc_vec_bwd = self.lc_G.sample(b_size, self.device)
+            fake_rand_lc_fwd = self.rand_G(fake_studio_fwd, lc_vec_fwd_hat)
+            lc_vec_bwd = self.lc_G.sample(b_size, self.device) if (not finetune or begin_finetune) else \
+                torch.randn_like(lc_vec_fwd, requires_grad=False).to(self.device)
             encoded = self.lc_G(lc_vec_fwd.detach())
             fake_rand_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
@@ -229,6 +233,14 @@ class PhotometricGAN(torch.nn.Module):
             'save latest result'
         self.save(save_dir, 'latest')
 
+    def forward(self, studio, rand=None):
+        bs = studio.shape[0]
+        if rand is None:
+            light_vec = self.lc_G.sample(1, self.device).expand(bs, -1)
+        else:
+            _, light_vec = self.studio_G(rand.expand_as(studio))
+        return self.rand_G(studio, light_vec)
+
     @torch.no_grad()
     def inference(self, gpu_id, dataloader, save_dir, num_lighting_infer, label, visualizer):
         self.to(gpu_id)
@@ -240,9 +252,8 @@ class PhotometricGAN(torch.nn.Module):
         for i, inputs in enumerate(tqdm_data_loader):
             for j in range(num_lighting_infer):
                 studio_img = inputs['base'].to(self.device)
-                b_size = studio_img.shape[0]
-                light_vec = self.lc_G.sample(b_size, self.device)
-                fake_rand_img = self.rand_G(studio_img, light_vec)
+                rand_ref = inputs['ref'][0, j:j+1, :, :, :].to(self.device) if 'ref' in inputs.keys() else None
+                fake_rand_img = self.forward(studio_img, rand_ref)
                 fake_rand_img = tensor2im(fake_rand_img)
                 for k in range(studio_img.shape[0]):
                     fake_k_lighting_j = fake_rand_img[k, :, :]

@@ -1,5 +1,5 @@
 from .module import *
-import torch as t
+import torch
 from torch import nn
 from functools import partial
 import torch.nn.functional as F
@@ -9,16 +9,15 @@ class RandomLightGenerator(nn.Module):
     def __init__(self,
                  input_dim,
                  output_dim,
+                 lc_dim,
                  num_downsample,
                  num_resblock,
                  ngf,
-                 lc_dim=(16, 8, 8),
                  padding_mode='reflect',
                  max_channel=256,
                  actv=nn.LeakyReLU,
                  norm_layer=partial(nn.InstanceNorm2d, affine=True)):
         super(RandomLightGenerator, self).__init__()
-        self.num_downsample = num_downsample
         n_channel = []
         num_c = ngf
         for i in range(num_downsample):
@@ -33,9 +32,9 @@ class RandomLightGenerator(nn.Module):
             norm_layer(ngf),
             actv())
 
-        self.encode = self.build_encode_block(num_downsample, n_channel, padding_mode, norm_layer, actv)
+        self.encode = self.build_encode_block(num_downsample, n_channel, lc_dim, padding_mode, actv)
 
-        self.build_decode_block(num_downsample, n_channel, padding_mode, actv, lc_dim[0])
+        self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode, actv, lc_dim)
 
         self.to_rgb = nn.Sequential(nn.Conv2d(ngf, ngf, 3, 1, 1),
                                     norm_layer(ngf),
@@ -46,57 +45,45 @@ class RandomLightGenerator(nn.Module):
         resblock = []
         for i in range(num_resblock):
             resblock += [ResnetBlock(res_channel, res_channel, norm_layer, actv, padding_mode=padding_mode)]
-        self.resblock = nn.Sequential(*resblock)
+        self.resblock = nn.ModuleList(resblock)
 
-    def build_encode_block(self, num_downsample, n_channel, padding_mode, norm_layer, actv):
+    def build_encode_block(self, num_downsample, n_channel, label_nc, padding_mode, actv):
         block = []
         for i in range(num_downsample):
-            block += [nn.Conv2d(n_channel[i][0], n_channel[i][1], 3, 2, 1, padding_mode=padding_mode,),
-                      norm_layer(n_channel[i][1]),
-                      actv()]
-        return nn.Sequential(*block)
+            block += [SPADEConvBlock(n_channel[i][0], n_channel[i][1], label_nc, 3, 2, 1, padding_mode=padding_mode, actv=actv)]
+        return nn.ModuleList(block)
 
 
     def build_decode_block(self, num_downsample, n_channel, padding_mode, actv, label_nc):
+        block = []
         for i in range(num_downsample):
-            deconv = [nn.Upsample(scale_factor=2),
-                      nn.Conv2d(n_channel[- i - 1][1], n_channel[- i - 1][0], 3, 1, 1, padding_mode=padding_mode)]
-            norm_layer = SPADE(n_channel[- i - 1][0], label_nc)
-            setattr(self, f'decode_conv_{i}', nn.Sequential(*deconv))
-            setattr(self, f'decode_norm_{i}', norm_layer)
-            setattr(self, f'decode_actv_{i}', actv())
+            block += [SPADEConvTransposeBlock(n_channel[- i - 1][1], n_channel[- i - 1][0], label_nc, 2, 3, 1, 1, padding_mode=padding_mode, actv=actv)]
+        return nn.ModuleList(block)
 
     def forward(self, img, segmap):
         x = self.from_rgb(img)
-        x = self.encode(x)
-        res = self.resblock(x)
-        x = res
-        for i in range(self.num_downsample):
-            decode_conv = getattr(self, f'decode_conv_{i}')
-            decode_norm = getattr(self, f'decode_norm_{i}')
-            decode_actv = getattr(self, f'decode_actv_{i}')
-            x = decode_conv(x)
-            x = decode_norm(x, segmap)
-            x = decode_actv(x)
+        for encode_i in self.encode:
+            x = encode_i(x, segmap)
+        for res_i in self.resblock:
+            x = res_i(x)
+        for decode_i in self.decode:
+            x = decode_i(x, segmap)
         x = self.to_rgb(x)
         return x
-
 
 class StudioLightGenerator(nn.Module):
     def __init__(self,
                  input_dim,
                  output_dim,
+                 lc_dim,
                  num_downsample,
                  num_resblock,
                  ngf,
-                 lc_dim=(16, 8, 8),
                  padding_mode='reflect',
                  max_channel=256,
                  actv=nn.LeakyReLU,
                  norm_layer=partial(nn.InstanceNorm2d, affine=True)):
         super(StudioLightGenerator, self).__init__()
-        self.num_downsample = num_downsample
-        self.lc_dim = lc_dim
         n_channel = []
         num_c = ngf
         for i in range(num_downsample):
@@ -106,21 +93,17 @@ class StudioLightGenerator(nn.Module):
         res_channel = n_channel[-1][-1]
 
         self.from_rgb = nn.Sequential(
-            nn.Conv2d(input_dim, 2 * ngf, kernel_size=7, stride=1, padding=3, padding_mode=padding_mode, ),
-            norm_layer(2 * ngf),
+            nn.Conv2d(input_dim, ngf, kernel_size=7, stride=1, padding=3, padding_mode=padding_mode, ),
+            norm_layer(ngf),
             actv())
 
         self.encode = self.build_encode_block(num_downsample, n_channel, padding_mode, actv)
-        self.actv_x = actv()
-        self.actv_z = nn.Sequential(
-            nn.Conv2d(res_channel, lc_dim[0], 3, 1, 1, padding_mode=padding_mode),
-            norm_layer(lc_dim[0]),
-            nn.Tanh())
 
         self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode,  norm_layer, actv)
 
-        self.to_rgb = nn.Sequential(nn.Conv2d(ngf, output_dim, 1, 1, 0),
-                                    nn.Tanh())
+        self.out = nn.Sequential(nn.Conv2d(ngf, output_dim + lc_dim, 1, 1, 0),
+                                 nn.Tanh())
+        self.split = [output_dim, lc_dim]
 
         resblock = []
         for i in range(num_resblock):
@@ -131,11 +114,11 @@ class StudioLightGenerator(nn.Module):
         encode = []
         for i in range(num_downsample):
             if i == num_downsample - 1:
-                encode += [nn.Conv2d(2 * n_channel[i][0], 2 * n_channel[i][1], 3, 2, 1, padding_mode=padding_mode, ),
-                           nn.InstanceNorm2d(2 * n_channel[i][1], affine=True)]
+                encode += [nn.Conv2d(n_channel[i][0], n_channel[i][1], 3, 2, 1, padding_mode=padding_mode, ),
+                           nn.InstanceNorm2d(n_channel[i][1], affine=True)]
             else:
-                encode += [nn.Conv2d(2 * n_channel[i][0], 2 * n_channel[i][1], 3, 2, 1, padding_mode=padding_mode, ),
-                           nn.InstanceNorm2d(2 * n_channel[i][1], affine=True),
+                encode += [nn.Conv2d(n_channel[i][0], n_channel[i][1], 3, 2, 1, padding_mode=padding_mode, ),
+                           nn.InstanceNorm2d(n_channel[i][1], affine=True),
                            actv()]
         return nn.Sequential(*encode)
 
@@ -151,13 +134,10 @@ class StudioLightGenerator(nn.Module):
 
     def forward(self, img):
         x = self.from_rgb(img)
-        x, z = t.chunk(self.encode(x), chunks=2, dim=1)
-        x = self.actv_x(x)
-        z = self.actv_z(z)
-        z = F.interpolate(z, size=self.lc_dim[1:])
+        x = self.encode(x)
         res = self.resblock(x)
         x = self.decode(res)
-        x = self.to_rgb(x)
+        x, z = torch.split(self.out(x), self.split, 1)
         return x, z
 
 class LightConditionGenerator(nn.Module):
@@ -187,51 +167,54 @@ class LightConditionGenerator(nn.Module):
 
 class LightConditionVAE(nn.Module):
     def __init__(self,
+                 input_size,
                  lc_dim,
                  latent_dim,
                  hidden_dims=None,
                  **kwargs) -> None:
         super(LightConditionVAE, self).__init__()
 
-        self.lc_dim = lc_dim
-        self.latent_dim = latent_dim
 
         modules = []
         if hidden_dims is None:
             hidden_dims = [32, 64, 128, 256, 256]
 
-        in_channels = lc_dim[0]
+        self.input_size = input_size
+        self.latent_dim = latent_dim
+        self.reshape_dim = [hidden_dims[-1], input_size[0]//(2 ** len(hidden_dims)), input_size[1]//(2 ** len(hidden_dims))]
+
+        in_channels = lc_dim
         # Build Encoder
         for h_dim in hidden_dims:
             modules.append(
                 nn.Sequential(
                     nn.Conv2d(in_channels=in_channels, out_channels=h_dim,
-                              kernel_size=3, stride=1, padding=1),
+                              kernel_size=3, stride=2, padding=1),
                     nn.InstanceNorm2d(h_dim),
                     nn.LeakyReLU())
             )
             in_channels = h_dim
 
         self.encoder = nn.Sequential(*modules)
-        self.fc_mu = nn.Linear(hidden_dims[-1] * lc_dim[1] * lc_dim[2], latent_dim)
-        self.fc_var = nn.Linear(hidden_dims[-1] * lc_dim[1] * lc_dim[2], latent_dim)
+        self.fc_mu = nn.Linear(self.reshape_dim[0] * self.reshape_dim[1] * self.reshape_dim[2], latent_dim)
+        self.fc_var = nn.Linear(self.reshape_dim[0] * self.reshape_dim[1] * self.reshape_dim[2], latent_dim)
 
         # Build Decoder
         modules = []
 
-        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1] * lc_dim[1] * lc_dim[2])
+        self.decoder_input = nn.Linear(latent_dim, self.reshape_dim[0] * self.reshape_dim[1] * self.reshape_dim[2])
 
         hidden_dims.reverse()
 
         for i in range(len(hidden_dims) - 1):
             modules.append(
                 nn.Sequential(
-                    nn.Conv2d(hidden_dims[i],
-                              hidden_dims[i + 1],
-                              kernel_size=3,
-                              stride=1,
-                              padding=1,
-                              ),
+                    nn.ConvTranspose2d(hidden_dims[i],
+                                       hidden_dims[i + 1],
+                                       kernel_size=3,
+                                       stride = 2,
+                                       padding=1,
+                                       output_padding=1),
                     nn.InstanceNorm2d(hidden_dims[i + 1]),
                     nn.LeakyReLU())
             )
@@ -240,15 +223,15 @@ class LightConditionVAE(nn.Module):
         self.decoder = nn.Sequential(*modules)
 
         self.final_layer = nn.Sequential(
-            nn.Conv2d(hidden_dims[-1],
-                      hidden_dims[-1],
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      ),
+            nn.ConvTranspose2d(hidden_dims[-1],
+                               hidden_dims[-1],
+                               kernel_size=3,
+                               stride=2,
+                               padding=1,
+                               output_padding=1),
             nn.InstanceNorm2d(hidden_dims[-1]),
             nn.LeakyReLU(),
-            nn.Conv2d(hidden_dims[-1], out_channels=lc_dim[0],
+            nn.Conv2d(hidden_dims[-1], out_channels=lc_dim,
                       kernel_size=3, padding=1),
             nn.Tanh())
 
@@ -259,6 +242,7 @@ class LightConditionVAE(nn.Module):
         :param input: (Tensor) Input tensor to encoder [N x C x H x W]
         :return: (Tensor) List of latent codes
         """
+        input = F.interpolate(input, self.input_size)
         result = self.encoder(input)
         result = torch.flatten(result, start_dim=1)
 
@@ -277,7 +261,7 @@ class LightConditionVAE(nn.Module):
         :return: (Tensor) [B x C x H x W]
         """
         result = self.decoder_input(z)
-        result = result.view(-1, 256, *self.lc_dim[1:])
+        result = result.view(-1, *self.reshape_dim)
         result = self.decoder(result)
         result = self.final_layer(result)
         return result
@@ -297,7 +281,7 @@ class LightConditionVAE(nn.Module):
     def forward(self, input, **kwargs):
         mu, log_var = self.encode(input)
         z = self.reparameterize(mu, log_var)
-        return [self.decode(z), input, mu, log_var]
+        return [self.decode(z), F.interpolate(input, self.input_size), mu, log_var]
 
 
     def sample(self,

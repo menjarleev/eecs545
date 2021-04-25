@@ -1,5 +1,3 @@
-import torch.nn as nn
-import functools
 import numpy as np
 
 def calculate_psnr(img1, img2):
