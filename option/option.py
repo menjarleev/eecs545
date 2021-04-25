@@ -6,6 +6,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=1)
 
     # models
+    parser.add_argument('--encoder', type=str, default='vae', choices=['vae', 'style-gan'])
     parser.add_argument('--netG', type=str, default='Cycle')
     parser.add_argument('--netD', type=str, default='Multiscale')
     parser.add_argument('--actv_G', type=str, default='LeakyReLU')
@@ -16,8 +17,8 @@ def parse_args():
     parser.add_argument('--padding_mode_D', type=str, default='zeros')
     parser.add_argument('--ngf', type=int, default=32)
     parser.add_argument('--ndf', type=int, default=32)
-    parser.add_argument('--n_layer_D', type=int, default=4)
-    parser.add_argument('--num_D', type=int, default=3)
+    parser.add_argument('--n_layer_D', type=int, default=3)
+    parser.add_argument('--num_D', type=int, default=2)
     parser.add_argument('--gan_mode', type=str, default='ls', help='[ls|origin|hinge]')
     parser.add_argument('--norm_D', type=str, default='instance')
     parser.add_argument('--use_vgg', action='store_true')
@@ -36,8 +37,8 @@ def parse_args():
     parser.add_argument('--optim_name', type=str, default='Adam',
                         choices=['Adam', 'SGD'])
     parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--decay', type=str, default='150-250-350')
-    parser.add_argument('--gamma', type=nt, default=0.5)
+    parser.add_argument('--decay', type=str, default='15-25-35')
+    parser.add_argument('--gamma', type=float, default=0.5)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--batch_size_eval', type=int, default=8)
     parser.add_argument('--max_step', type=int, default=100000)
@@ -59,7 +60,7 @@ def parse_args():
     parser.add_argument('--print_mem', type=bool, default=True)
     parser.add_argument('--step_label', type=str, default='latest')
     parser.add_argument('--continue_train', action='store_true')
-    parser.add_argument('--loss_terms', type=str, default=['L1', 'GAN', 'feat', 'vae'], nargs='+')
+    parser.add_argument('--loss_terms', type=str, default=['L1', 'GAN'], nargs='+')
     parser.add_argument('--gpu_id', type=int, default=0)
 
     # test
@@ -74,18 +75,15 @@ def parse_args():
     # photometrics specific options
     parser.add_argument('--num_lighting', type=int, default=9)
     parser.add_argument('--bottleneck_z', type=int, default=256)
-    parser.add_argument('--num_conv_z', type=int, default=2)
-    parser.add_argument('--num_linear_z', type=int, default=4)
 
     # inference
     parser.add_argument('--use_ref', action='store_true', dest='use_ref')
     parser.add_argument('--inference', action='store_true', dest='inference')
     parser.add_argument('--num_lighting_infer', type=int, default=9)
     parser.add_argument('--label_infer', type=str, default='best', choices=['best', 'latest'])
-    parser.add_argument('--lc_dim', type=int, nargs='+', default=16)
+    parser.add_argument('--lc_nc', type=int, nargs='+', default=8)
     parser.add_argument('--latent_dim', type=int, default=64)
-    parser.add_argument('--n_bottleneck', type=int, default=8)
-    parser.add_argument('--bottleneck_dim', type=int, default=256)
+    parser.add_argument('--n_mlp', type=int, default=8)
 
 
     # agumentation

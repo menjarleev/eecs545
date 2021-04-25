@@ -74,8 +74,7 @@ class PhotometricGAN(torch.nn.Module):
         visualizer.log_print("# params of lc_G: {}".format(sum(map(lambda x: x.numel(), self.lc_G.parameters()))))
         visualizer.log_print("# params of rand_G: {}".format(sum(map(lambda x: x.numel(), self.rand_G.parameters()))))
         visualizer.log_print("# params of rand_D: {}".format(sum(map(lambda x: x.numel(), self.rand_D.parameters()))))
-        visualizer.log_print(
-            "# params of studio_G: {}".format(sum(map(lambda x: x.numel(), self.studio_G.parameters()))))
+        visualizer.log_print("# params of studio_G: {}".format(sum(map(lambda x: x.numel(), self.studio_G.parameters()))))
 
         start = 0
 
@@ -114,10 +113,9 @@ class PhotometricGAN(torch.nn.Module):
 
             fake_studio_fwd, lc_vec_fwd = self.studio_G(rand_lc)
             _, lc_vec_fwd_hat = self.studio_G(rand_shape)
-            fake_rand_lc_fwd = self.rand_G(fake_studio_fwd, lc_vec_fwd_hat)
+            fake_rand_lc_fwd = self.rand_G(fake_studio_fwd, (lc_vec_fwd_hat + lc_vec_fwd) / 2)
             lc_vec_bwd = self.lc_G.sample(b_size, self.device) if (not finetune or begin_finetune) else \
                 torch.randn_like(lc_vec_fwd, requires_grad=False).to(self.device)
-            encoded = self.lc_G(lc_vec_fwd.detach())
             fake_rand_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
             fake_studio_bwd, fake_lc_vec_bwd = self.studio_G(fake_rand_lc_bwd)
@@ -129,7 +127,8 @@ class PhotometricGAN(torch.nn.Module):
                     loss_collector.compute_GAN_losses(self.rand_D, gan_fake, gan_real.detach(), for_discriminator=False,
                                                       cls='rand')
                     loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
-                    loss_collector.compute_VAE_losses(*encoded)
+                    if loss_collector.has_VAE:
+                        loss_collector.compute_VAE_losses(*self.lc_G(lc_vec_fwd.detach()))
                 else:
                     loss_collector.compute_GAN_losses(self.rand_D, gan_fake.detach(), gan_real.detach(),
                                                       for_discriminator=True, cls='rand')
@@ -147,15 +146,17 @@ class PhotometricGAN(torch.nn.Module):
             else:
                 compute_finetune_loss(for_D=False)
                 compute_encoding_loss()
+            loss_G = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_collector.loss_names_G.items()}
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
+            loss_D = {}
             if begin_finetune or not finetune:
                 compute_finetune_loss(for_D=True)
+                loss_D = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_collector.loss_names_D.items()}
                 loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
-            loss_dict = {**loss_collector.loss_names_G, **loss_collector.loss_names_D}
 
             if (step + 1) % log_interval == 0:
                 call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"])
-                errors = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_dict.items()}
+                errors = {**loss_G, **loss_D}
                 err_msg = ""
                 for k, v in errors.items():
                     if v != 0:
@@ -163,7 +164,7 @@ class PhotometricGAN(torch.nn.Module):
                 visualizer.log_print(err_msg)
 
             if (step + 1) % validation_interval == 0 or (step + 1) % save_interval == 0:
-                curr_lr = schedulerG.get_lr()[0]
+                curr_lr = schedulerG.get_last_lr()
                 self.summary_and_save(step, max_step, save_dir, save_result, log_result, curr_lr,
                                       val_dataloader, visualizer, proceed_val=(step + 1) % validation_interval == 0)
                 if begin_finetune:
@@ -285,23 +286,19 @@ class PhotometricGAN(torch.nn.Module):
         for i, inputs in enumerate(tqdm_data_loader):
             rand_img = inputs['rand_lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
+            rand_shape_img = inputs['rand_shape'].to(self.device)
             b_size = rand_img.shape[0]
             lc_from_noise = self.lc_G.sample(b_size, self.device)
             infer_rand = self.rand_G(studio_img, lc_from_noise)
+
             fake_studio_img, light_vec_forward = self.studio_G(rand_img)
-
+            _, light_vec_ref = self.studio_G(rand_shape_img)
             fake_rand_img = self.rand_G(studio_img, light_vec_forward)
-            crop_size = 10
-
             infer_rand = tensor2im(infer_rand)
             fake_studio = tensor2im(fake_studio_img)
             fake_rand = tensor2im(fake_rand_img)
-            rand = tensor2im(rand_img)
-            studio = tensor2im(studio_img)
-            fake_studio = fake_studio[:, crop_size:-crop_size, crop_size:-crop_size]
-            fake_rand = fake_rand[:, crop_size:-crop_size, crop_size:-crop_size]
-            gt_studio = studio[:, crop_size:-crop_size, crop_size:-crop_size]
-            gt_rand = rand[:, crop_size:-crop_size, crop_size:-crop_size]
+            gt_rand = tensor2im(rand_img)
+            gt_studio = tensor2im(studio_img)
             for j in range(rand_img.shape[0]):
                 infer_j = infer_rand[j, :, :]
                 gt_rand_j = gt_rand[j, :, :]

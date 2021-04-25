@@ -29,7 +29,8 @@ class LossCollector:
             self.weight['VGG'] = lambda_vgg
         if 'vae' in loss_terms:
             self.weight['kl'] = lambda_kl
-            self.weight['vae'] =lambda_vae
+            self.weight['vae'] = lambda_vae
+        self.has_VAE = 'vae' in self.weight.keys()
 
 
     def compute_GAN_losses(self, netD, fake, gt, for_discriminator, cls):

@@ -1,4 +1,5 @@
 from .module import *
+import math
 import torch
 from torch import nn
 from functools import partial
@@ -9,7 +10,7 @@ class RandomLightGenerator(nn.Module):
     def __init__(self,
                  input_dim,
                  output_dim,
-                 lc_dim,
+                 lc_nc,
                  num_downsample,
                  num_resblock,
                  ngf,
@@ -32,9 +33,9 @@ class RandomLightGenerator(nn.Module):
             norm_layer(ngf),
             actv())
 
-        self.encode = self.build_encode_block(num_downsample, n_channel, lc_dim, padding_mode, actv)
+        self.encode = self.build_encode_block(num_downsample, n_channel, padding_mode, actv)
 
-        self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode, actv, lc_dim)
+        self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode, actv, lc_nc)
 
         self.to_rgb = nn.Sequential(nn.Conv2d(ngf, ngf, 3, 1, 1),
                                     norm_layer(ngf),
@@ -47,11 +48,17 @@ class RandomLightGenerator(nn.Module):
             resblock += [ResnetBlock(res_channel, res_channel, norm_layer, actv, padding_mode=padding_mode)]
         self.resblock = nn.ModuleList(resblock)
 
-    def build_encode_block(self, num_downsample, n_channel, label_nc, padding_mode, actv):
-        block = []
+    def build_encode_block(self, num_downsample, n_channel,  padding_mode, actv):
+        encode = []
         for i in range(num_downsample):
-            block += [SPADEConvBlock(n_channel[i][0], n_channel[i][1], label_nc, 3, 2, 1, padding_mode=padding_mode, actv=actv)]
-        return nn.ModuleList(block)
+            if i == num_downsample - 1:
+                encode += [nn.Conv2d(n_channel[i][0], n_channel[i][1], 3, 2, 1, padding_mode=padding_mode, ),
+                           nn.InstanceNorm2d(n_channel[i][1], affine=True)]
+            else:
+                encode += [nn.Conv2d(n_channel[i][0], n_channel[i][1], 3, 2, 1, padding_mode=padding_mode, ),
+                           nn.InstanceNorm2d(n_channel[i][1], affine=True),
+                           actv()]
+        return nn.Sequential(*encode)
 
 
     def build_decode_block(self, num_downsample, n_channel, padding_mode, actv, label_nc):
@@ -63,7 +70,7 @@ class RandomLightGenerator(nn.Module):
     def forward(self, img, segmap):
         x = self.from_rgb(img)
         for encode_i in self.encode:
-            x = encode_i(x, segmap)
+            x = encode_i(x)
         for res_i in self.resblock:
             x = res_i(x)
         for decode_i in self.decode:
@@ -75,7 +82,7 @@ class StudioLightGenerator(nn.Module):
     def __init__(self,
                  input_dim,
                  output_dim,
-                 lc_dim,
+                 lc_nc,
                  num_downsample,
                  num_resblock,
                  ngf,
@@ -101,9 +108,9 @@ class StudioLightGenerator(nn.Module):
 
         self.decode = self.build_decode_block(num_downsample, n_channel, padding_mode,  norm_layer, actv)
 
-        self.out = nn.Sequential(nn.Conv2d(ngf, output_dim + lc_dim, 1, 1, 0),
+        self.out = nn.Sequential(nn.Conv2d(ngf, output_dim + lc_nc, 1, 1, 0),
                                  nn.Tanh())
-        self.split = [output_dim, lc_dim]
+        self.split = [output_dim, lc_nc]
 
         resblock = []
         for i in range(num_resblock):
@@ -140,35 +147,40 @@ class StudioLightGenerator(nn.Module):
         x, z = torch.split(self.out(x), self.split, 1)
         return x, z
 
-class LightConditionGenerator(nn.Module):
-    def __init__(self, noise_dim, lc_dim, bottleneck_dim, n_bottleneck, n_block=5, actv=nn.LeakyReLU):
-        super(LightConditionGenerator, self).__init__()
-        self.generator = Generator(n_block, 256, lc_dim[0], lc_dim[1:], bottleneck_dim)
-        self.lc_dim = lc_dim
-        self.n_block = n_block
-        layer = [nn.Linear(noise_dim, bottleneck_dim),
+class StyleGANGenerator(nn.Module):
+    def __init__(self, lc_nc, input_size, n_mlp, init_size=4, code_dim=512, actv=nn.LeakyReLU):
+        super(StyleGANGenerator, self).__init__()
+        self.code_dim = code_dim
+        self.n_block = int(math.log2(input_size[0] // init_size))
+        self.generator = Generator(lc_nc, input_size, init_size, code_dim)
+        layer = [nn.Linear(code_dim, code_dim),
                  actv()]
-        for i in range(n_bottleneck):
-            layer += [nn.Linear(bottleneck_dim, bottleneck_dim),
+        for i in range(n_mlp):
+            layer += [nn.Linear(code_dim, code_dim),
                       actv()]
         self.layer = nn.Sequential(*layer)
-        self.lc_dim = lc_dim
 
     def forward(self, input, noise=None):
         b_size = input.shape[0]
         style = self.layer(input)
         if noise is None:
             noise = []
-            for i in range(self.n_block):
-                noise += [torch.randn(b_size, 1, *self.lc_dim[1:], device=input.device)]
+            for i in range(self.n_block + 1):
+                size = 4 * 2**i
+                noise += [torch.randn(b_size, 1, size, size, device=input.device)]
         out = self.generator(style, noise)
 
         return out
 
+    def sample(self, num_sample, current_device):
+        z = torch.randn(num_sample, self.code_dim).to(current_device)
+        x = self.forward(z)
+        return x
+
 class LightConditionVAE(nn.Module):
     def __init__(self,
                  input_size,
-                 lc_dim,
+                 lc_nc,
                  latent_dim,
                  hidden_dims=None,
                  **kwargs) -> None:
@@ -183,7 +195,7 @@ class LightConditionVAE(nn.Module):
         self.latent_dim = latent_dim
         self.reshape_dim = [hidden_dims[-1], input_size[0]//(2 ** len(hidden_dims)), input_size[1]//(2 ** len(hidden_dims))]
 
-        in_channels = lc_dim
+        in_channels = lc_nc
         # Build Encoder
         for h_dim in hidden_dims:
             modules.append(
@@ -231,7 +243,7 @@ class LightConditionVAE(nn.Module):
                                output_padding=1),
             nn.InstanceNorm2d(hidden_dims[-1]),
             nn.LeakyReLU(),
-            nn.Conv2d(hidden_dims[-1], out_channels=lc_dim,
+            nn.Conv2d(hidden_dims[-1], out_channels=lc_nc,
                       kernel_size=3, padding=1),
             nn.Tanh())
 

@@ -39,7 +39,7 @@ def main():
 
     rand_G = RandomLightGenerator(input_dim=opt.input_dim,
                                   output_dim=opt.output_dim,
-                                  lc_dim=opt.lc_dim,
+                                  lc_nc=opt.lc_nc,
                                   num_downsample=opt.num_downsample,
                                   num_resblock=opt.num_resblock,
                                   ngf=opt.ngf,
@@ -47,19 +47,17 @@ def main():
                                   max_channel=opt.max_channel)
     studio_G = StudioLightGenerator(input_dim=opt.input_dim,
                                     output_dim=opt.output_dim,
-                                    lc_dim=opt.lc_dim,
+                                    lc_nc=opt.lc_nc,
                                     num_downsample=opt.num_downsample,
                                     num_resblock=opt.num_resblock,
                                     ngf=opt.ngf,
                                     padding_mode=opt.padding_mode_G,
                                     max_channel=opt.max_channel)
-    lc_G = LightConditionVAE(lc_dim=opt.lc_dim,
-                             input_size=opt.input_size,
-                             latent_dim=opt.latent_dim)
+    lc_G = define_encoder(opt)
     rand_D, lc_D = None, None
-    train_dataloader, test_dataset = None, None
+    train_dataloader, valid_dataloader = None, None
     if opt.train:
-        rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2 + opt.lc_dim,
+        rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2 + opt.lc_nc,
                                          num_D=opt.num_D,
                                          n_layer=opt.n_layer_D,
                                          ndf=opt.ndf,
@@ -73,9 +71,9 @@ def main():
         train_dataloader = DataLoader(train_dataset, batch_size=opt.batch_size, shuffle=True)
         # create dataloader
         if opt.validation:
-            valid_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='valid', transform=transform,"
+            valid_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='valid', transform=None,"
                                 f"use_ref={opt.use_ref}, num_lighting_infer={opt.num_lighting_infer})")
-            valid_dataloader = DataLoader(valid_dataset, batch_size=opt.batch_size, shuffle=True)
+            valid_dataloader = DataLoader(valid_dataset, batch_size=opt.batch_size, shuffle=False)
 
     solver = PhotometricGAN(rand_G, lc_G, studio_G, rand_D, lc_D, gpu_id=opt.gpu_id)
     if opt.train:
@@ -115,7 +113,7 @@ def main():
     if opt.test:
         # create dataloader
         # substitute train with test dataset you like
-        test_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='test', transform=transform,"
+        test_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='test', transform=None,"
                             f"use_ref={opt.use_ref}, num_lighting_infer={opt.num_lighting_infer})")
         test_dataloader = DataLoader(test_dataset, batch_size=opt.batch_size_eval, shuffle=False)
         solver.test(
@@ -130,7 +128,7 @@ def main():
     if opt.inference:
         # create dataloader
         # substitute train with infer dataset you like
-        test_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='test', transform=transform,"
+        test_dataset = eval(f"{opt.dataset}(dataset_root='{opt.dataset_root}', phase='test', transform=None,"
                             f"use_ref={opt.use_ref}, num_lighting_infer={opt.num_lighting_infer})")
         test_dataloader = DataLoader(test_dataset, batch_size=opt.batch_size_eval, shuffle=False)
         solver.inference(gpu_id=opt.gpu_id,
