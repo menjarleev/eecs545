@@ -129,17 +129,18 @@ class PhotometricGAN(torch.nn.Module):
             loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
             loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
             loss_collector.compute_L1_losses(lc_vec_fwd, lc_vec_fwd_hat, 'fake_vec')
-            if loss_collector.has_VAE:
-                loss_collector.compute_VAE_losses(*self.lc_G(lc_vec_fwd.detach()))
+            if finetune:
+                if loss_collector.has_VAE:
+                    loss_collector.compute_VAE_losses(*self.lc_G(lc_vec_fwd.detach()))
 
             loss_G = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_collector.loss_names_G.items()}
             loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
 
             loss_D = {}
             if not finetune:
-                loss_D = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_collector.loss_names_D.items()}
                 loss_collector.compute_GAN_losses(self.rand_D, gan_fake.detach(), gan_real.detach(),
                                                   for_discriminator=True, cls='rand')
+                loss_D = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_collector.loss_names_D.items()}
                 loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
 
             if (step + 1) % log_interval == 0:

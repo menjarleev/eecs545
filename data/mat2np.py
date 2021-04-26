@@ -68,7 +68,7 @@ def mat2im(source, target):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_root', type=str, default='/home/ubuntu/data')
+    parser.add_argument('--dataset_root', type=str, default='/home/menjarleev/developer/dataset')
     parser.add_argument('--mat_dir', type=str, default='BottleData')
     parser.add_argument('--img_dir', type=str, default='BottleImg')
     return parser.parse_args()
