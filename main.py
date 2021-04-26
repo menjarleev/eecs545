@@ -57,7 +57,7 @@ def main():
     rand_D, lc_D = None, None
     train_dataloader, valid_dataloader = None, None
     if opt.train:
-        rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2 + opt.lc_nc,
+        rand_D = MultiScaleDiscriminator(input_nc=opt.input_dim * 2,
                                          num_D=opt.num_D,
                                          n_layer=opt.n_layer_D,
                                          ndf=opt.ndf,

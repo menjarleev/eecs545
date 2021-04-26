@@ -7,6 +7,7 @@ from tqdm import tqdm, trange
 from skimage.metrics import structural_similarity
 from utils.utils import calculate_psnr
 from utils.tensor_ops import tensor2im
+from utils.plot import plot_lc_feat
 from itertools import chain
 import json
 
@@ -112,23 +113,24 @@ class PhotometricGAN(torch.nn.Module):
             rand_shape = inputs['rand_shape'].to(self.device)
             b_size = rand_lc.shape[0]
 
-            fake_studio_fwd, lc_vec_fwd = self.studio_G(rand_lc)
-            _, lc_vec_fwd_hat = self.studio_G(rand_shape)
-            fake_rand_lc_fwd = self.rand_G(fake_studio_fwd, (lc_vec_fwd_hat + lc_vec_fwd) / 2)
+            # fake_studio_fwd, lc_vec_fwd = self.studio_G(rand_lc)
+            # _, lc_vec_fwd_hat = self.studio_G(rand_shape)
+            # fake_rand_lc_fwd = self.rand_G(fake_studio_fwd, lc_vec_fwd_hat)
             lc_vec_bwd = self.lc_G.sample(b_size, self.device)
-            fake_rand_bwd = self.rand_G(studio, lc_vec_bwd)
+            # fake_rand_bwd = self.rand_G(studio, lc_vec_fwd)
             fake_rand_lc_bwd = self.rand_G(studio, lc_vec_bwd)
-            fake_studio_bwd, fake_lc_vec_bwd = self.studio_G(fake_rand_lc_bwd)
-            gan_fake = torch.cat([fake_rand_bwd, studio, F.interpolate(lc_vec_bwd, studio.shape[2:])], dim=1) if finetune \
-                else torch.cat([fake_rand_lc_fwd, studio, F.interpolate(lc_vec_fwd, studio.shape[2:]).detach()], dim=1)
-            gan_real = torch.cat([rand_lc, studio, F.interpolate(lc_vec_fwd, studio.shape[2:]).detach()], dim=1)
+            # fake_studio_bwd, fake_lc_vec_bwd = self.studio_G(fake_rand_lc_bwd)
+            # gan_fake = torch.cat([fake_rand_bwd, studio, F.interpolate(lc_vec_bwd, studio.shape[2:])], dim=1) if finetune \
+            #     else torch.cat([fake_rand_lc_fwd, studio, F.interpolate(lc_vec_fwd, studio.shape[2:]).detach()], dim=1)
+            gan_fake = torch.cat([fake_rand_lc_bwd, studio], dim=1)
+            gan_real = torch.cat([rand_lc, studio], dim=1)
 
             loss_collector.compute_GAN_losses(self.rand_D, gan_fake, gan_real.detach(), for_discriminator=False,
                                               cls='rand')
-            loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
-            loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
-            loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
-            loss_collector.compute_L1_losses(lc_vec_fwd, lc_vec_fwd_hat, 'fake_vec')
+            # loss_collector.compute_L1_losses(fake_studio_bwd, studio, 'studio_bwd')
+            # loss_collector.compute_L1_losses(fake_studio_fwd, studio, 'studio_fwd')
+            # loss_collector.compute_L1_losses(fake_rand_lc_fwd, rand_lc, 'rand_fwd')
+            # loss_collector.compute_L1_losses(lc_vec_fwd, lc_vec_fwd_hat, 'fake_vec')
             if finetune:
                 if loss_collector.has_VAE:
                     loss_collector.compute_VAE_losses(*self.lc_G(lc_vec_fwd.detach()))
@@ -269,50 +271,58 @@ class PhotometricGAN(torch.nn.Module):
             studio_img_dir = os.path.join(base_dir, 'studio')
             rand_img_dir = os.path.join(base_dir, 'rand')
             infer_img_dir = os.path.join(base_dir, 'infer')
+            feat_img_dir = os.path.join(base_dir, 'feat')
             os.makedirs(studio_img_dir, exist_ok=True)
             os.makedirs(rand_img_dir, exist_ok=True)
             os.makedirs(infer_img_dir, exist_ok=True)
+            os.makedirs(feat_img_dir, exist_ok=True)
         for i, inputs in enumerate(tqdm_data_loader):
             rand_img = inputs['rand_lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
             rand_shape_img = inputs['rand_shape'].to(self.device)
             b_size = rand_img.shape[0]
             lc_from_noise = self.lc_G.sample(b_size, self.device)
-            infer_rand = self.rand_G(studio_img, lc_from_noise)
 
             fake_studio_img, light_vec_forward = self.studio_G(rand_img)
             _, light_vec_ref = self.studio_G(rand_shape_img)
-            fake_rand_img = self.rand_G(studio_img, light_vec_forward)
-            infer_rand = tensor2im(infer_rand)
+            fake_rand_from_studio = self.rand_G(studio_img, light_vec_forward)
+            fake_rand_from_z = self.rand_G(studio_img, lc_from_noise)
+            fake_rand_from_ref = self.rand_G(studio_img, light_vec_ref)
             fake_studio = tensor2im(fake_studio_img)
-            fake_rand = tensor2im(fake_rand_img)
+            fake_rand_from_studio = tensor2im(fake_rand_from_studio)
+            fake_rand_from_z = tensor2im(fake_rand_from_z)
+            fake_rand_from_ref = tensor2im(fake_rand_from_ref)
             gt_rand = tensor2im(rand_img)
             gt_studio = tensor2im(studio_img)
             for j in range(rand_img.shape[0]):
-                infer_j = infer_rand[j, :, :]
                 gt_rand_j = gt_rand[j, :, :]
                 gt_studio_j = gt_studio[j, :, :]
-                fake_rand_j = fake_rand[j, :, :]
                 fake_studio_j = fake_studio[j, :, :]
+                fake_rand_from_studio_j = fake_rand_from_studio[j, :, :]
+                fake_rand_from_z_j = fake_rand_from_z[j, :, :]
+                fake_rand_from_ref_j = fake_rand_from_ref[j, :, :]
                 if save_result:
                     def save_result(path, label, img):
                         _dir = os.path.join(path, label)
                         os.makedirs(_dir, exist_ok=True)
                         gt_file = os.path.join(_dir, f'{idx + 1:>04}.jpg')
                         io.imsave(gt_file, img)
-
                     save_result(studio_img_dir, 'gt', gt_studio_j)
                     save_result(studio_img_dir, 'fake', fake_studio_j)
                     save_result(rand_img_dir, 'gt', gt_rand_j)
-                    save_result(rand_img_dir, 'fake', fake_rand_j)
-                    save_result(infer_img_dir, 'infer', infer_j)
+                    save_result(rand_img_dir, 'fake_from_z', fake_rand_from_z_j)
+                    save_result(rand_img_dir, 'fake_from_ref', fake_rand_from_ref_j)
+                    save_result(rand_img_dir, 'fake_from_rand', fake_rand_from_studio_j)
                 psnr_studio += calculate_psnr(gt_studio_j, fake_studio_j)
-                psnr_rand += calculate_psnr(gt_rand_j, fake_rand_j)
+                psnr_rand += calculate_psnr(gt_rand_j, fake_rand_from_ref_j)
                 ssim_studio += structural_similarity(gt_studio_j, fake_studio_j, data_range=255, multichannel=False,
                                                      gaussian_weights=True, K1=0.01, K2=0.03)
-                ssim_rand += structural_similarity(gt_rand_j, fake_rand_j, data_range=255, multichannel=False,
+                ssim_rand += structural_similarity(gt_rand_j, fake_rand_from_ref_j, data_range=255, multichannel=False,
                                                    gaussian_weights=True, K1=0.01, K2=0.03)
                 idx += 1
+            if save_result:
+                plot_lc_feat(light_vec_forward, feat_img_dir, 'studio', i)
+                plot_lc_feat(light_vec_ref, feat_img_dir, 'ref', i)
             if eval_step != -1 and (i + 1) % eval_step == 0:
                 break
 
