@@ -26,6 +26,8 @@ def quantize(img, rgb_range):
     return img.mul(pixel_range).clamp(0, 255).round().div(pixel_range)
 
 def normalize(tensor, mean=0.5, std=0.5):
+    if type(tensor) == list:
+        return [normalize(t) for t in tensor]
     def _normalize(t):
         c, _, _ = t.shape
         if type(mean) == list:

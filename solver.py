@@ -1,27 +1,40 @@
 import os
 import skimage.io as io
 import torch
-import torch.nn.functional as F
 from subprocess import call
 from tqdm import tqdm, trange
 from skimage.metrics import structural_similarity
-from utils.utils import calculate_psnr
-from utils.tensor_ops import tensor2im
-from utils.plot import plot_lc_feat
+import torch.nn.functional as F
+from utils import calculate_psnr, tensor2im
 from itertools import chain
 import json
 
 
-class PhotometricGAN(torch.nn.Module):
-    def __init__(self, rand_G, lc_G, studio_G=None, rand_D=None, diff_D=None, name='PhotometricGAN', gpu_id=-1):
-        super().__init__()
+class Solver:
+
+    def __init__(self, rand_G, lc_G, studio_G=None, rand_D=None, name='PhotometricGAN', gpu_id=-1):
         self.name = name
         self.lc_G = lc_G
         self.rand_G = rand_G
         self.rand_D = rand_D
-        self.diff_D = diff_D
         self.studio_G = studio_G
         self.device = torch.device(f'cuda:{gpu_id}' if gpu_id != -1 else 'cpu')
+
+    def to(self, device):
+        if type(device) == int:
+            self.device = torch.device(f'cuda:{device}' if device != -1 else 'cpu')
+        elif type(device) == torch.device:
+            self.device = device
+        else:
+            raise ValueError(f'{device} is not a device')
+        if self.rand_G is not None:
+            self.rand_G.to(self.device)
+        if self.lc_G is not None:
+            self.lc_G.to(self.device)
+        if self.studio_G is not None:
+            self.studio_G.to(self.device)
+        if self.rand_D is not None:
+            self.rand_D.to(self.device)
 
     def fit(self,
             gpu_id,
@@ -63,7 +76,7 @@ class PhotometricGAN(torch.nn.Module):
         log_result = {}
         optimG = create_optimizer(chain(self.rand_G.parameters(), self.studio_G.parameters(), self.lc_G.parameters()),
                                   optim_name)
-        optimD = create_optimizer(chain(self.rand_D.parameters()), optim_name)
+        optimD = create_optimizer(chain(self.rand_D.parameters(), ), optim_name)
         schedulerG = torch.optim.lr_scheduler.MultiStepLR(
             optimG, [1000 * int(d) for d in decay.split('-')],
             gamma=gamma,
@@ -147,19 +160,17 @@ class PhotometricGAN(torch.nn.Module):
             else:
                 compute_finetune_loss(for_D=False)
                 compute_encoding_loss()
-            log_G = loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
-            loss_collector.loss_names_G = {}
-            log_D = {}
+            loss_collector.loss_backward(loss_collector.loss_names_G, optimG, schedulerG)
             if begin_finetune or not finetune:
                 compute_finetune_loss(for_D=True)
-                log_D = loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
-                loss_collector.loss_names_D = {}
-            log = {**log_G, **log_D}
+                loss_collector.loss_backward(loss_collector.loss_names_D, optimD, schedulerD)
+            loss_dict = {**loss_collector.loss_names_G, **loss_collector.loss_names_D}
 
             if (step + 1) % log_interval == 0:
                 call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"])
+                errors = {k: v.data.detach().item() if not isinstance(v, int) else v for k, v in loss_dict.items()}
                 err_msg = ""
-                for k, v in log.items():
+                for k, v in errors.items():
                     if v != 0:
                         err_msg += '%s: %.3f ' % (k, v)
                 visualizer.log_print(err_msg)
@@ -177,6 +188,7 @@ class PhotometricGAN(torch.nn.Module):
 
     @torch.no_grad()
     def test(self,
+             noise_dim,
              gpu_id,
              save_dir,
              visualizer,
@@ -192,7 +204,7 @@ class PhotometricGAN(torch.nn.Module):
                 log_result = json.load(json_file)
         else:
             log_result = {}
-        test_result = self.evaluate(test_dataloader, save_dir, phase='test', save_result=save_result,
+        test_result = self.evaluate(noise_dim, test_dataloader, save_dir, phase='test', save_result=save_result,
                                     eval_step=test_step)
         log_result['test'] = test_result
         test_log = 'test result \n'
@@ -235,27 +247,21 @@ class PhotometricGAN(torch.nn.Module):
             'save latest result'
         self.save(save_dir, 'latest')
 
-    def forward(self, studio, rand=None):
-        bs = studio.shape[0]
-        if rand is None:
-            light_vec = self.lc_G.sample(1, self.device).expand(bs, -1)
-        else:
-            _, light_vec = self.studio_G(rand.expand_as(studio))
-        return self.rand_G(studio, light_vec)
-
     @torch.no_grad()
     def inference(self, gpu_id, dataloader, save_dir, num_lighting_infer, label, visualizer):
         self.to(gpu_id)
         self.load(save_dir, label, visualizer)
-        self.eval()
+        self.rand_G.eval()
+        self.lc_G.eval()
         tqdm_data_loader = tqdm(dataloader, desc='infer', leave=False)
         rand_img_dir = os.path.join(save_dir, f'infer_rand')
         os.makedirs(rand_img_dir, exist_ok=True)
         for i, inputs in enumerate(tqdm_data_loader):
             for j in range(num_lighting_infer):
                 studio_img = inputs['base'].to(self.device)
-                rand_ref = inputs['ref'][0, j:j+1, :, :, :].to(self.device) if 'ref' in inputs.keys() else None
-                fake_rand_img = self.forward(studio_img, rand_ref)
+                b_size = studio_img.shape[0]
+                light_vec = self.lc_G.sample(b_size, self.device)
+                fake_rand_img = self.rand_G(studio_img, light_vec)
                 fake_rand_img = tensor2im(fake_rand_img)
                 for k in range(studio_img.shape[0]):
                     fake_k_lighting_j = fake_rand_img[k, :, :]
@@ -263,7 +269,8 @@ class PhotometricGAN(torch.nn.Module):
                     os.makedirs(save_folder, exist_ok=True)
                     file_path = os.path.join(save_folder, f'{j + 1}.jpg')
                     io.imsave(file_path, fake_k_lighting_j)
-        self.train()
+        self.rand_G.train()
+        self.lc_G.eval()
 
     @torch.no_grad()
     def evaluate(self, dataloader, save_dir, phase='test', save_result=False, eval_step=-1):
@@ -280,57 +287,55 @@ class PhotometricGAN(torch.nn.Module):
             os.makedirs(base_dir, exist_ok=True)
             studio_img_dir = os.path.join(base_dir, 'studio')
             rand_img_dir = os.path.join(base_dir, 'rand')
-            feat_img_dir = os.path.join(base_dir, 'feat')
+            infer_img_dir = os.path.join(base_dir, 'infer')
             os.makedirs(studio_img_dir, exist_ok=True)
             os.makedirs(rand_img_dir, exist_ok=True)
-            os.makedirs(feat_img_dir, exist_ok=True)
+            os.makedirs(infer_img_dir, exist_ok=True)
         for i, inputs in enumerate(tqdm_data_loader):
             rand_img = inputs['rand_lc'].to(self.device)
             studio_img = inputs['base'].to(self.device)
-            rand_shape_img = inputs['rand_shape'].to(self.device)
             b_size = rand_img.shape[0]
             lc_from_noise = self.lc_G.sample(b_size, self.device)
-
+            infer_rand = self.rand_G(studio_img, lc_from_noise)
             fake_studio_img, light_vec_forward = self.studio_G(rand_img)
-            _, light_vec_ref = self.studio_G(rand_shape_img)
-            fake_rand_from_studio = self.rand_G(studio_img, light_vec_forward)
-            fake_rand_from_z = self.rand_G(studio_img, lc_from_noise)
-            fake_rand_from_ref = self.rand_G(studio_img, light_vec_ref)
+
+            fake_rand_img = self.rand_G(studio_img, light_vec_forward)
+            crop_size = 10
+
+            infer_rand = tensor2im(infer_rand)
             fake_studio = tensor2im(fake_studio_img)
-            fake_rand_from_studio = tensor2im(fake_rand_from_studio)
-            fake_rand_from_z = tensor2im(fake_rand_from_z)
-            fake_rand_from_ref = tensor2im(fake_rand_from_ref)
-            gt_rand = tensor2im(rand_img)
-            gt_studio = tensor2im(studio_img)
+            fake_rand = tensor2im(fake_rand_img)
+            rand = tensor2im(rand_img)
+            studio = tensor2im(studio_img)
+            fake_studio = fake_studio[:, crop_size:-crop_size, crop_size:-crop_size]
+            fake_rand = fake_rand[:, crop_size:-crop_size, crop_size:-crop_size]
+            gt_studio = studio[:, crop_size:-crop_size, crop_size:-crop_size]
+            gt_rand = rand[:, crop_size:-crop_size, crop_size:-crop_size]
             for j in range(rand_img.shape[0]):
+                infer_j = infer_rand[j, :, :]
                 gt_rand_j = gt_rand[j, :, :]
                 gt_studio_j = gt_studio[j, :, :]
+                fake_rand_j = fake_rand[j, :, :]
                 fake_studio_j = fake_studio[j, :, :]
-                fake_rand_from_studio_j = fake_rand_from_studio[j, :, :]
-                fake_rand_from_z_j = fake_rand_from_z[j, :, :]
-                fake_rand_from_ref_j = fake_rand_from_ref[j, :, :]
                 if save_result:
                     def save_result(path, label, img):
                         _dir = os.path.join(path, label)
                         os.makedirs(_dir, exist_ok=True)
                         gt_file = os.path.join(_dir, f'{idx + 1:>04}.jpg')
                         io.imsave(gt_file, img)
+
                     save_result(studio_img_dir, 'gt', gt_studio_j)
                     save_result(studio_img_dir, 'fake', fake_studio_j)
                     save_result(rand_img_dir, 'gt', gt_rand_j)
-                    save_result(rand_img_dir, 'fake_from_z', fake_rand_from_z_j)
-                    save_result(rand_img_dir, 'fake_from_ref', fake_rand_from_ref_j)
-                    save_result(rand_img_dir, 'fake_from_gt', fake_rand_from_studio_j)
+                    save_result(rand_img_dir, 'fake', fake_rand_j)
+                    save_result(infer_img_dir, 'infer', infer_j)
                 psnr_studio += calculate_psnr(gt_studio_j, fake_studio_j)
-                psnr_rand += calculate_psnr(gt_rand_j, fake_rand_from_ref_j)
+                psnr_rand += calculate_psnr(gt_rand_j, fake_rand_j)
                 ssim_studio += structural_similarity(gt_studio_j, fake_studio_j, data_range=255, multichannel=False,
                                                      gaussian_weights=True, K1=0.01, K2=0.03)
-                ssim_rand += structural_similarity(gt_rand_j, fake_rand_from_ref_j, data_range=255, multichannel=False,
+                ssim_rand += structural_similarity(gt_rand_j, fake_rand_j, data_range=255, multichannel=False,
                                                    gaussian_weights=True, K1=0.01, K2=0.03)
                 idx += 1
-            if save_result:
-                plot_lc_feat(light_vec_forward, feat_img_dir, 'studio', i)
-                plot_lc_feat(light_vec_ref, feat_img_dir, 'ref', i)
             if eval_step != -1 and (i + 1) % eval_step == 0:
                 break
 
@@ -349,36 +354,47 @@ class PhotometricGAN(torch.nn.Module):
         visualizer.log_print('update [{}] for status file'.format(label))
 
     def save(self, save_dir, label):
-        state_dict = self.cpu().state_dict()
-        self.to(self.device)
+        def update_state_dict(name, module):
+            state_dict.update({name: module.cpu().state_dict()})
+            module.to(self.device)
+
+        state_dict = dict()
+        update_state_dict('rand_G', self.rand_G)
+        update_state_dict('rand_D', self.rand_D)
+        update_state_dict('lc_G', self.lc_G)
+        update_state_dict('studio_G', self.studio_G)
         state_path = os.path.join(save_dir, 'state_{}.pth'.format(label))
         torch.save(state_dict, state_path)
 
     def load(self, save_dir, label, visualizer):
-        def load_network(network, pretrained_dict):
-            try:
-                network.load_state_dict(pretrained_dict)
-                visualizer.log_print('network loaded')
-            except:
-                pretrained_dict = network.state_dict()
+        def load_network(network, pretrained_dict, name):
+            if name in pretrained_dict.keys():
+                model_dict = pretrained_dict[name]
                 try:
-                    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in pretrained_dict}
-                    network.load_state_dict(pretrained_dict)
-                    visualizer.log_print(
-                        'Pretrained network has excessive layers; Only loading layers that are used')
+                    network.load_state_dict(model_dict)
+                    visualizer.log_print('network %s loaded' % name)
                 except:
-                    visualizer.log_print(
-                        'Pretrained network has fewer layers; The following are not initialized:')
-                    not_initialized = set()
-                    for k, v in pretrained_dict.items():
-                        if v.size() == pretrained_dict[k].size():
-                            pretrained_dict[k] = v
+                    model_dict = network.state_dict()
+                    try:
+                        model_dict = {k: v for k, v in model_dict.items() if k in model_dict}
+                        network.load_state_dict(model_dict)
+                        visualizer.log_print(
+                            'Pretrained network %s has excessive layers; Only loading layers that are used' % name)
+                    except:
+                        visualizer.log_print(
+                            'Pretrained network %s has fewer layers; The following are not initialized:' % name)
+                        not_initialized = set()
+                        for k, v in model_dict.items():
+                            if v.size() == model_dict[k].size():
+                                model_dict[k] = v
 
-                    for k, v in pretrained_dict.items():
-                        if k not in pretrained_dict or v.size() != pretrained_dict[k].size():
-                            not_initialized.add('.'.join(k.split('.')[:2]))
-                    visualizer.log_print(sorted(not_initialized))
-                    network.load_state_dict(pretrained_dict)
+                        for k, v in model_dict.items():
+                            if k not in model_dict or v.size() != model_dict[k].size():
+                                not_initialized.add('.'.join(k.split('.')[:2]))
+                        visualizer.log_print(sorted(not_initialized))
+                        network.load_state_dict(model_dict)
+            else:
+                visualizer.log_print(f'{name} not found in pth file. train from scratch.')
 
         state_path = os.path.join(save_dir, 'state_{}.pth'.format(label))
 
@@ -387,5 +403,19 @@ class PhotometricGAN(torch.nn.Module):
             return
 
         state = torch.load(state_path)
-        load_network(self, state)
-        self.to(self.device)
+
+        if self.rand_G is not None:
+            load_network(self.rand_G, state, 'rand_G')
+            self.rand_G.to(self.device)
+
+        if self.lc_G is not None:
+            load_network(self.lc_G, state, 'lc_G')
+            self.lc_G.to(self.device)
+
+        if self.studio_G is not None:
+            load_network(self.studio_G, state, 'studio_G')
+            self.studio_G.to(self.device)
+
+        if self.rand_D is not None:
+            load_network(self.rand_D, state, 'rand_D')
+            self.rand_D.to(self.device)

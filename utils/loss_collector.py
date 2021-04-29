@@ -54,12 +54,11 @@ class LossCollector:
         self.loss_names_G[f'G_GAN_Feat'] = loss_G_GAN_Feat * smoother
 
 
-    def compute_L1_losses(self, fake, gt, cls='vec', smoother: float = 1.):
+    def compute_L1_losses(self, fake, gt, cls='vec', w: float = 1.):
         if not 'L1' in self.weight.keys():
             return
         loss_L1 = self.criterionL1(fake, gt)
-        self.loss_names_G[f'{cls}_L1'] = loss_L1 * self.weight['L1'] * smoother
-
+        self.loss_names_G[f'{cls}_L1'] = loss_L1 * w
     def compute_VAE_losses(self, recons, input, mu, log_var):
         if not 'kl' in self.weight.keys():
             return
@@ -90,12 +89,11 @@ class LossCollector:
 
     def loss_backward(self, loss_dict, optimizer, scheduler):
         losses = [torch.mean(v) if not isinstance(v, int) else v for _, v in loss_dict.items()]
+        log = {k: v.detach().item() if isinstance(v, torch.Tensor) else v for k, v in loss_dict.items()}
         loss = sum(losses)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         scheduler.step()
-        self.loss_names_G = {}
-        self.loss_names_D = {}
-        return losses
+        return log
 

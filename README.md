@@ -19,5 +19,14 @@ main.py --test --test_step 50 --dataset_root YOUR_DATASET_ROOT --num_resblock 12
 ```
 Args can be found in ```option/option.py```
 
+## inference
+```bash
+main.py --inference --model_dir YOUR_MODEL_DIR --num_resblock 12 --dataset_root YOUR_BOTTLE_DIR
+```
+* note: ```YOUR_BOOTLE_DIR```  should be like the structure  ```./BottleImg/inference/dir/```. In each dir, there is at 
+  least one ```base.jpg``` image. If you specify in the argument ```--use_ref```, then there should be ```--num_lighting_infer```
+  (the one you speicied in the args as well) number of ```lc_\d.jpg``` reference images, where ```\d``` represents digit.
+  Otherwise, the model will do the reference using z vector
+
 ## requirements
 * TODO add requirements files

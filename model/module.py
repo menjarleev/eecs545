@@ -1,6 +1,5 @@
+import torch as th
 from torch import nn
-import math
-import torch
 from functools import partial
 import torch.nn.functional as F
 
@@ -30,9 +29,9 @@ class SpatialAttention(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        avg_out = torch.mean(x, dim=1, keepdim=True)
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
-        x = torch.cat([avg_out, max_out], dim=1)
+        avg_out = th.mean(x, dim=1, keepdim=True)
+        max_out, _ = th.max(x, dim=1, keepdim=True)
+        x = th.cat([avg_out, max_out], dim=1)
         x = self.conv1(x)
         return self.sigmoid(x)
 
@@ -157,60 +156,11 @@ class SPADE(nn.Module):
 
         return out
 
-
-class SPADEConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, label_nc, kernel_size=3, stride=1, padding=1, padding_mode='reflect', actv=nn.LeakyReLU):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, padding_mode=padding_mode)
-        self.norm = SPADE(out_channels, label_nc)
-        self.actv = actv()
-
-    def forward(self, x, segmap):
-        x = self.conv(x)
-        x = self.norm(x, segmap)
-        x = self.actv(x)
-        return x
-
-class SPADEConvTransposeBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, label_nc, scale_factor, kernel_size=3, stride=1, padding=1, padding_mode='reflect', actv=nn.LeakyReLU):
-        super().__init__()
-        self.upsample = nn.Sequential(nn.Upsample(scale_factor=scale_factor),
-                                      nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, padding_mode=padding_mode))
-        self.norm1 = SPADE(out_channels, label_nc)
-        self.actv1 = actv()
-
-    def forward(self, x, segmap):
-        x = self.upsample(x)
-        x = self.norm1(x, segmap)
-        x = self.actv1(x)
-        return x
-
-class SPADEResnetBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, label_nc, activation=nn.LeakyReLU, kernel_size=3, stride=1, padding_mode='reflect'):
-        super(SPADEResnetBlock, self).__init__()
-        self.downscale = None
-        if stride > 1:
-            self.downscale = nn.Conv2d(in_channel, out_channel, kernel_size=kernel_size, stride=stride, padding=kernel_size // 2, padding_mode=padding_mode)
-        self.spade_conv1 = SPADEConvBlock(in_channel, out_channel, label_nc, kernel_size, stride, padding_mode=padding_mode, actv=activation)
-        self.conv2 = nn.Conv2d(in_channel, out_channel, kernel_size=3, padding=kernel_size // 2, padding_mode=padding_mode, stride=stride)
-        self.norm = SPADE(norm_nc=out_channel, label_nc=label_nc)
-
-    def forward(self, x, segmap):
-        scale_x = x
-        if self.downscale is not None:
-            scale_x = self.downscale(scale_x)
-        x = self.spade_conv1(x, segmap)
-        x = self.conv2(x)
-        x = self.norm(x, segmap)
-        out = scale_x + x
-        return out
-
-
 class NoiseInjection(nn.Module):
     def __init__(self, channel):
         super().__init__()
 
-        self.weight = nn.Parameter(torch.zeros(1, channel, 1, 1))
+        self.weight = nn.Parameter(th.zeros(1, channel, 1, 1))
 
     def forward(self, image, noise):
         return image + self.weight * noise
@@ -219,7 +169,7 @@ class ConstantInput(nn.Module):
     def __init__(self, channel, size=(8, 8)):
         super().__init__()
 
-        self.input = nn.Parameter(torch.randn(1, channel, *size))
+        self.input = nn.Parameter(th.randn(1, channel, *size))
 
     def forward(self, input):
         batch = input.shape[0]
@@ -234,28 +184,22 @@ class StyledConvBlock(nn.Module):
             kernel_size=3,
             padding=1,
             style_dim=512,
-            input_size=(4, 4),
+            lc_dim=(8, 8),
             initial=False,
-            upsample=False,
             padding_mode='reflect',
     ):
         super().__init__()
 
         if initial:
-            self.conv1 = ConstantInput(in_channel, input_size)
+            self.conv1 = ConstantInput(in_channel, lc_dim)
         else:
-            if upsample:
-                self.conv1 = nn.Sequential(
-                    nn.Upsample(scale_factor=2, mode='nearest'),
-                    nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding))
-            else:
-                self.conv1 = nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, padding_mode=padding_mode)
+            self.conv1 = nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, padding_mode=padding_mode )
 
         self.noise1 = NoiseInjection(out_channel)
         self.adain1 = AdaptiveInstanceNorm(out_channel, style_dim)
         self.lrelu1 = nn.LeakyReLU()
 
-        self.conv2 = nn.Conv2d(out_channel, out_channel, kernel_size, padding=padding, padding_mode=padding_mode)
+        self.conv2 = nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, padding_mode=padding_mode )
         self.noise2 = NoiseInjection(out_channel)
         self.adain2 = AdaptiveInstanceNorm(out_channel, style_dim)
         self.lrelu2 = nn.LeakyReLU()
@@ -275,19 +219,15 @@ class StyledConvBlock(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, lc_nc, input_size, init_size, code_dim):
+    def __init__(self, n_block, n_channel, out_channel, lc_dim, style_dim, padding_mode='reflect'):
         super().__init__()
-        block = []
-        n_block = int(math.log2(math.ceil(input_size[0] // init_size)))
-        n_channel = 512
-        block += [StyledConvBlock(n_channel, n_channel, 3, 1, code_dim, (init_size, init_size), True)]
-        for i in range(n_block):
-            block += [StyledConvBlock(n_channel, n_channel//2, 3, 1, code_dim, upsample=True)]
-            n_channel = n_channel // 2
+        block = [StyledConvBlock(n_channel, n_channel, 3, 1, style_dim=style_dim, lc_dim=lc_dim, initial=True)]
+        for i in range(n_block - 2):
+            block += [StyledConvBlock(n_channel, n_channel, 3, 1, style_dim=style_dim)]
+        self.conv = nn.Sequential(nn.Conv2d(n_channel, out_channel, 3, 1, 1, padding_mode=padding_mode),
+                                  nn.InstanceNorm2d(out_channel),
+                                  nn.LeakyReLU())
         self.progression = nn.ModuleList(block)
-        self.conv = nn.Sequential(nn.Conv2d(n_channel, lc_nc, 3, 1, 1, padding_mode='reflect'),
-                                  nn.InstanceNorm2d(lc_nc),
-                                  nn.Tanh())
 
     def forward(self, style, noise):
         out = noise[0]
